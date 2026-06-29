@@ -166,10 +166,11 @@ async function handleRegistrarPagoGrupal(miembrosIds: string[], monto: number, m
     .single()
   
   const grupoId = primerMiembro?.grupo_id
+  const idsRecibos: string[] = []
   
   // Registrar pago para cada miembro del grupo
   for (const id of miembrosIds) {
-    await registrarPago(
+    const resultado = await registrarPago(
       id, 
       monto, // El monto ya viene dividido desde el modal
       metodo, 
@@ -177,6 +178,10 @@ async function handleRegistrarPagoGrupal(miembrosIds: string[], monto: number, m
       true, // esPagoGrupal
       grupoId || undefined
     )
+    
+    if (resultado.pagoId) {
+      idsRecibos.push(resultado.pagoId)
+    }
   }
   
   setAprobando(null)
@@ -184,6 +189,16 @@ async function handleRegistrarPagoGrupal(miembrosIds: string[], monto: number, m
   setPagoGrupal(false)
   setMiembrosGrupo([])
   router.refresh()
+  
+  // Abrir recibos en nuevas pestañas
+  if (idsRecibos.length > 0) {
+    // Si hay varios recibos, abrir el primero (o todos en pestañas)
+    // Abrir el recibo del titular o el primero
+    window.open(`/recibo/${idsRecibos[0]}`, '_blank')
+    
+    // Si quieres abrir todos los recibos (puede ser molesto para el usuario)
+    // idsRecibos.forEach(id => window.open(`/recibo/${id}`, '_blank'))
+  }
 }
   const handleEliminarViaje = async () => {
     setEliminando(true)
@@ -618,7 +633,7 @@ async function handleRegistrarPagoGrupal(miembrosIds: string[], monto: number, m
       )
     })}
 
-   {pasajeroModal && (
+    {pasajeroModal && (
       <ModalPago
         nombrePasajero={pasajeroModal.nombre}
         esGrupo={pagoGrupal}
