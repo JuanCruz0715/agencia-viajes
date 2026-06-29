@@ -633,7 +633,7 @@ async function handleRegistrarPagoGrupal(miembrosIds: string[], monto: number, m
       )
     })}
 
-   {pasajeroModal && (
+    {pasajeroModal && (
       <ModalPago
         nombrePasajero={pasajeroModal.nombre}
         esGrupo={pagoGrupal}
