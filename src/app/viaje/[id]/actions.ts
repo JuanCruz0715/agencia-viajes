@@ -3,6 +3,36 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
+// ============================================
+// TIPOS
+// ============================================
+
+type PasajeroResumen = {
+  id: string
+  nombre_pasajero: string
+  monto_pagado: number | null
+  monto_total: number | null
+  estado_pago: string
+  grupo_id: string | null
+  es_titular: boolean
+}
+
+type GrupoResumen = {
+  grupo_id: string
+  miembros: PasajeroResumen[]
+  total_pagado: number
+  total_deuda: number
+}
+
+type ResumenPagos = {
+  grupos: GrupoResumen[]
+  individuales: PasajeroResumen[]
+}
+
+// ============================================
+// FUNCIONES
+// ============================================
+
 export async function aprobarPasajero(pasajeroId: string, viajeId: string) {
   const supabase = await createClient()
 
@@ -54,10 +84,10 @@ export async function registrarPago(
       .eq('grupo_id', grupoId)
 
     if (errorMiembros || !miembros || miembros.length === 0) {
-      return { error: 'No se encontraron miembros del grupo', pagoId: null }
+      return { error: 'No se encontraron miembros del grupo', pagoId: null, pagoIds: [] }
     }
 
-    const resultados = []
+    const pagoIds: string[] = []
     let errorGeneral = null
 
     // Procesar cada miembro del grupo
@@ -80,16 +110,15 @@ export async function registrarPago(
         continue
       }
 
-      // Registrar el pago individual
+      // Registrar el pago individual (sin las columnas que no existen)
       const { data: pago, error: errorPago } = await supabase
         .from('pagos')
         .insert({ 
           pasajero_id: miembro.id, 
           viaje_id: viajeId, 
           monto, 
-          metodo_pago: metodoPago,
-          es_pago_grupal: true,
-          grupo_id: grupoId
+          metodo_pago: metodoPago
+          // NOTA: No incluyo es_pago_grupal ni grupo_id porque no existen en tu tabla
         })
         .select('id')
         .single()
@@ -99,18 +128,18 @@ export async function registrarPago(
         continue
       }
       
-      resultados.push(pago.id)
+      pagoIds.push(pago.id)
     }
 
-    if (errorGeneral) {
-      return { error: errorGeneral, pagoId: resultados.length > 0 ? resultados[0] : null }
+    if (errorGeneral && pagoIds.length === 0) {
+      return { error: errorGeneral, pagoId: null, pagoIds: [] }
     }
 
     revalidatePath(`/viaje/${viajeId}`)
-    return { error: null, pagoId: resultados[0] }
+    return { error: null, pagoId: pagoIds[0], pagoIds: pagoIds }
   }
 
-  // Pago individual (código existente)
+  // Pago individual
   const { data: pasajero } = await supabase
     .from('pasajeros')
     .select('monto_pagado, monto_total')
@@ -118,7 +147,7 @@ export async function registrarPago(
     .single()
 
   if (!pasajero) {
-    return { error: 'No se encontró el pasajero', pagoId: null }
+    return { error: 'No se encontró el pasajero', pagoId: null, pagoIds: [] }
   }
 
   const nuevoMonto = (pasajero.monto_pagado ?? 0) + monto
@@ -131,7 +160,7 @@ export async function registrarPago(
     .eq('id', pasajeroId)
 
   if (errorUpdate) {
-    return { error: errorUpdate.message, pagoId: null }
+    return { error: errorUpdate.message, pagoId: null, pagoIds: [] }
   }
 
   const { data: pago, error: errorPago } = await supabase
@@ -140,19 +169,17 @@ export async function registrarPago(
       pasajero_id: pasajeroId, 
       viaje_id: viajeId, 
       monto, 
-      metodo_pago: metodoPago,
-      es_pago_grupal: false,
-      grupo_id: null
+      metodo_pago: metodoPago
     })
     .select('id')
     .single()
 
   if (errorPago) {
-    return { error: errorPago.message, pagoId: null }
+    return { error: errorPago.message, pagoId: null, pagoIds: [] }
   }
 
   revalidatePath(`/viaje/${viajeId}`)
-  return { error: null, pagoId: pago.id }
+  return { error: null, pagoId: pago.id, pagoIds: [pago.id] }
 }
 
 // Función auxiliar para obtener los miembros de un grupo
@@ -184,33 +211,59 @@ export async function obtenerResumenPagos(viajeId: string) {
     return { error: error.message, resumen: null }
   }
 
+  if (!pasajeros || pasajeros.length === 0) {
+    return { error: null, resumen: { grupos: [], individuales: [] } }
+  }
+
   // Agrupar por grupo familiar
-  const grupos: Record<string, any> = {}
-  const individuales: any[] = []
+  const gruposMap = new Map<string, GrupoResumen>()
+  const individuales: PasajeroResumen[] = []
 
   pasajeros.forEach((p) => {
     if (p.grupo_id) {
-      if (!grupos[p.grupo_id]) {
-        grupos[p.grupo_id] = {
+      if (!gruposMap.has(p.grupo_id)) {
+        gruposMap.set(p.grupo_id, {
           grupo_id: p.grupo_id,
           miembros: [],
           total_pagado: 0,
           total_deuda: 0
-        }
+        })
       }
-      grupos[p.grupo_id].miembros.push(p)
-      grupos[p.grupo_id].total_pagado += (p.monto_pagado || 0)
-      grupos[p.grupo_id].total_deuda += (p.monto_total || 0)
+      const grupo = gruposMap.get(p.grupo_id)!
+      grupo.miembros.push(p)
+      grupo.total_pagado += (p.monto_pagado || 0)
+      grupo.total_deuda += (p.monto_total || 0)
     } else {
       individuales.push(p)
     }
   })
 
+  const grupos = Array.from(gruposMap.values())
+
+  const resumen: ResumenPagos = {
+    grupos,
+    individuales
+  }
+
   return {
     error: null,
-    resumen: {
-      grupos: Object.values(grupos),
-      individuales
-    }
+    resumen
   }
+}
+
+// Función para obtener los pagos de un grupo (para recibo grupal)
+export async function obtenerPagosGrupo(grupoId: string, viajeId: string) {
+  const supabase = await createClient()
+  
+  const { data: pagos, error } = await supabase
+    .from('pagos')
+    .select('*, pasajeros(nombre_pasajero, monto_total)')
+    .eq('grupo_id', grupoId)
+    .eq('viaje_id', viajeId)
+
+  if (error) {
+    return { error: error.message, pagos: null }
+  }
+
+  return { error: null, pagos }
 }
