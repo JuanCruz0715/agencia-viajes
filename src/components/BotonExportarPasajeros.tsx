@@ -1,0 +1,150 @@
+'use client'
+
+import { useState } from 'react'
+import * as XLSX from 'xlsx'
+
+type Pasajero = {
+  id: string
+  nombre_pasajero: string
+  numero_documento: string | null
+  tipo_documento?: string | null
+  estado_revision: string
+  estado_pago: string
+  monto_pagado: number | null
+  monto_total: number | null
+  grupo_id: string | null
+  es_titular: boolean
+  parentesco_con_titular?: string | null
+  email_pasajero?: string | null
+  telefono_pasajero?: string | null
+  fecha_nacimiento?: string | null
+  genero_pasajero?: string | null
+  contacto_emergencia_nombre?: string | null
+  contacto_emergencia_telefono?: string | null
+  contacto_emergencia_parentesco?: string | null
+  enfermedad?: string | null
+  alergia?: string | null
+  dieta_especial?: string | null
+  sugerencias?: string | null
+}
+
+type Props = {
+  pasajeros: Pasajero[]
+  viajeNombre: string
+}
+
+export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props) {
+  const [exportando, setExportando] = useState(false)
+
+  // Agrupar pasajeros por grupo familiar y asignar número de familia
+  const agruparYNumerarFamilias = (lista: Pasajero[]) => {
+    const grupos: Record<string, Pasajero[]> = {}
+    const individuales: Pasajero[] = []
+    
+    lista.forEach((p) => {
+      if (p.grupo_id) {
+        if (!grupos[p.grupo_id]) grupos[p.grupo_id] = []
+        grupos[p.grupo_id].push(p)
+      } else {
+        individuales.push(p)
+      }
+    })
+    
+    // Crear array final con numeración
+    const resultado: (Pasajero & { numeroFamilia: string })[] = []
+    let contador = 1
+    
+    // Procesar grupos familiares
+    Object.values(grupos).forEach((miembros) => {
+      // Ordenar miembros: primero el titular, luego los acompañantes
+      const titular = miembros.find((m) => m.es_titular)
+      const resto = miembros.filter((m) => !m.es_titular)
+      const ordenados = titular ? [titular, ...resto] : miembros
+      
+      ordenados.forEach((p) => {
+        resultado.push({
+          ...p,
+          numeroFamilia: `F${contador}`
+        })
+      })
+      contador++
+    })
+    
+    // Procesar individuales
+    individuales.forEach((p) => {
+      resultado.push({
+        ...p,
+        numeroFamilia: 'Individual'
+      })
+    })
+    
+    return resultado
+  }
+
+  const exportarExcel = () => {
+    setExportando(true)
+    try {
+      const pasajerosConFamilia = agruparYNumerarFamilias(pasajeros)
+      
+      // Solo datos personales básicos
+      const datos = pasajerosConFamilia.map((p) => ({
+        'N° Familia': p.numeroFamilia,
+        'Nombre': p.nombre_pasajero,
+        'Documento': p.numero_documento || '',
+        'Tipo Doc': p.tipo_documento || 'DNI',
+        'Email': p.email_pasajero || '',
+        'Teléfono': p.telefono_pasajero || '',
+        'Fecha Nac.': p.fecha_nacimiento || '',
+        'Género': p.genero_pasajero || '',
+        'Parentesco': p.es_titular ? 'TITULAR' : (p.parentesco_con_titular || 'Acompañante'),
+        'Estado': p.estado_revision === 'aprobado' ? 'Confirmado' : 'Pendiente',
+        'Pago': p.estado_pago === 'pagado' ? 'Pagado' : 'Pendiente',
+        'Monto Pagado': p.monto_pagado || 0,
+        'Monto Total': p.monto_total || 0,
+      }))
+
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.json_to_sheet(datos)
+
+      // Ajustar ancho de columnas
+      ws['!cols'] = [
+        { wch: 12 }, // N° Familia
+        { wch: 25 }, // Nombre
+        { wch: 15 }, // Documento
+        { wch: 10 }, // Tipo Doc
+        { wch: 30 }, // Email
+        { wch: 15 }, // Teléfono
+        { wch: 15 }, // Fecha Nac.
+        { wch: 12 }, // Género
+        { wch: 15 }, // Parentesco
+        { wch: 12 }, // Estado
+        { wch: 12 }, // Pago
+        { wch: 12 }, // Monto Pagado
+        { wch: 12 }, // Monto Total
+      ]
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Pasajeros')
+      XLSX.writeFile(wb, `Pasajeros_${viajeNombre}_${new Date().toLocaleDateString()}.xlsx`)
+    } catch (error) {
+      console.error('Error al exportar:', error)
+      alert('Error al exportar el archivo')
+    }
+    setExportando(false)
+  }
+
+  // Solo mostrar si hay pasajeros
+  if (pasajeros.length === 0) return null
+
+  return (
+    <button
+      onClick={exportarExcel}
+      disabled={exportando}
+      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+      {exportando ? 'Exportando...' : '📊 Exportar a Excel'}
+    </button>
+  )
+}
