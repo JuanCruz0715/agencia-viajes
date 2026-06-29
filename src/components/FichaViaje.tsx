@@ -660,37 +660,40 @@ async function handleRegistrarPagoGrupal(miembrosIds: string[], monto: number, m
 
       {/* Modal de detalle de pasajero */}
       {detalleModal && (
-        <ModalDetallePasajero
-          pasajero={detalleModal.pasajero}
-          esGrupo={detalleModal.esGrupo}
-          miembros={detalleModal.miembros}
-          aprobando={aprobando === detalleModal.pasajero.id || aprobando === detalleModal.miembros[0]?.grupo_id}
-          onAprobar={() => {
-            console.log('📌 onAprobar llamado desde FichaViaje')
-            if (detalleModal.esGrupo) {
-              handleAprobarGrupo(detalleModal.miembros[0].grupo_id!)
-            } else {
-              handleAprobarPasajero(detalleModal.pasajero.id)
-            }
-          }}
-          onCancel={() => {
-            console.log('📌 onCancel llamado desde FichaViaje')
-            setDetalleModal(null)
-          }}
-          onEliminar={() => {
-            console.log('📌 onEliminar llamado desde FichaViaje')
-            if (detalleModal.esGrupo) {
-              handleEliminarGrupo(detalleModal.miembros[0].grupo_id!)
-            } else {
-              handleEliminarPasajero(detalleModal.pasajero.id)
-            }
-          }}
-          onEditar={() => {
-            console.log('📌 onEditar llamado desde FichaViaje')
-            abrirEdicion()
-          }}
-        />
-      )}
+  <ModalDetallePasajero
+    pasajero={detalleModal.pasajero}
+    esGrupo={detalleModal.esGrupo}
+    miembros={detalleModal.miembros}
+    estaAprobando={
+      aprobando === detalleModal.pasajero.id || 
+      aprobando === detalleModal.miembros[0]?.grupo_id
+    }
+    onAprobar={() => {
+      console.log('📌 onAprobar llamado desde FichaViaje')
+      if (detalleModal.esGrupo) {
+        handleAprobarGrupo(detalleModal.miembros[0].grupo_id!)
+      } else {
+        handleAprobarPasajero(detalleModal.pasajero.id)
+      }
+    }}
+    onCancel={() => {
+      console.log('📌 onCancel llamado desde FichaViaje')
+      setDetalleModal(null)
+    }}
+    onEliminar={() => {
+      console.log('📌 onEliminar llamado desde FichaViaje')
+      if (detalleModal.esGrupo) {
+        handleEliminarGrupo(detalleModal.miembros[0].grupo_id!)
+      } else {
+        handleEliminarPasajero(detalleModal.pasajero.id)
+      }
+    }}
+    onEditar={() => {
+      console.log('📌 onEditar llamado desde FichaViaje')
+      abrirEdicion()
+    }}
+  />
+)}
 
       {/* Modal de edición de pasajero */}
       {editando && (

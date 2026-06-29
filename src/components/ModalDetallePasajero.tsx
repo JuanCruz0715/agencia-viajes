@@ -33,7 +33,7 @@ type Props = {
   onCancel: () => void
   onEliminar?: () => void
   onEditar?: () => void
-  aprobando?: string | null
+  estaAprobando?: boolean  // ← Cambiado a boolean
 }
 
 export default function ModalDetallePasajero({
@@ -44,22 +44,10 @@ export default function ModalDetallePasajero({
   onCancel,
   onEliminar,
   onEditar,
-  aprobando = null,
+  estaAprobando = false,  // ← Cambiado a boolean
 }: Props) {
-  console.log('🔵 ModalDetallePasajero renderizado con:', {
-    pasajero: pasajero.nombre_pasajero,
-    esGrupo,
-    aprobando,
-    tieneOnAprobar: !!onAprobar,
-    tieneOnCancel: !!onCancel,
-    tieneOnEliminar: !!onEliminar,
-    tieneOnEditar: !!onEditar,
-  })
-
   const titular = miembros.find((m) => m.es_titular) ?? pasajero
   const resto = miembros.filter((m) => m.id !== titular.id)
-
-  const estaAprobando = aprobando === pasajero.id || aprobando === pasajero.grupo_id
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -186,7 +174,7 @@ export default function ModalDetallePasajero({
           </div>
         )}
 
-        {/* BOTONES - TODOS FUNCIONALES */}
+        {/* BOTONES */}
         <div className="flex flex-wrap gap-2 mt-4">
           <button
             onClick={() => {
