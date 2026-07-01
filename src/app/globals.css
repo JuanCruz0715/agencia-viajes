@@ -24,3 +24,9 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+:root {
+  --sn-azul: #1B3A5C;
+  --sn-celeste: #2D9CB8;
+  --sn-celeste-claro: #5BC4D9;
+  --sn-amarillo: #F2B632;
+}

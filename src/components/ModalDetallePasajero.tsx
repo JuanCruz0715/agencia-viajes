@@ -2,7 +2,9 @@
 
 type Pasajero = {
   id: string
-  nombre_pasajero: string
+  nombre: string | null
+  apellido: string | null
+  nombre_pasajero: string | null
   numero_documento: string | null
   tipo_documento?: string | null
   estado_revision: string
@@ -16,6 +18,7 @@ type Pasajero = {
   telefono_pasajero?: string | null
   fecha_nacimiento?: string | null
   genero_pasajero?: string | null
+  nacionalidad?: string | null
   contacto_emergencia_nombre?: string | null
   contacto_emergencia_telefono?: string | null
   contacto_emergencia_parentesco?: string | null
@@ -23,6 +26,9 @@ type Pasajero = {
   alergia?: string | null
   dieta_especial?: string | null
   sugerencias?: string | null
+  edad?: number | null
+  es_menor_3?: boolean | null
+  es_menor_18?: boolean | null
 }
 
 type Props = {
@@ -33,6 +39,7 @@ type Props = {
   onCancel: () => void
   onEliminar?: () => void
   onEditar?: () => void
+  onCancelar?: () => void
   estaAprobando?: boolean
 }
 
@@ -44,10 +51,40 @@ export default function ModalDetallePasajero({
   onCancel,
   onEliminar,
   onEditar,
+  onCancelar,
   estaAprobando = false,
 }: Props) {
   const titular = miembros.find((m) => m.es_titular) ?? pasajero
   const resto = miembros.filter((m) => m.id !== titular.id)
+
+  const handleAprobar = () => {
+    console.log('🟢 Click en APROBAR - onAprobar existe?', !!onAprobar)
+    if (onAprobar) {
+      onAprobar()
+    } else {
+      console.error('❌ onAprobar no está definido')
+    }
+  }
+
+  const handleCancel = () => {
+    console.log('🟡 Click en CANCELAR')
+    onCancel()
+  }
+
+  const handleEliminar = () => {
+    console.log('🔴 Click en ELIMINAR')
+    if (onEliminar) onEliminar()
+  }
+
+  const handleEditar = () => {
+    console.log('🟣 Click en EDITAR')
+    if (onEditar) onEditar()
+  }
+
+  const handleCancelar = () => {
+    console.log('🟠 Click en CANCELAR PASAJERO')
+    if (onCancelar) onCancelar()
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -59,7 +96,9 @@ export default function ModalDetallePasajero({
         {/* Información del titular */}
         <div className="border rounded-lg p-4 mb-4">
           <div className="flex justify-between items-start mb-3">
-            <p className="font-medium text-lg text-black">{titular.nombre_pasajero}</p>
+            <p className="font-medium text-lg text-black">
+              {titular.nombre} {titular.apellido}
+            </p>
             {titular.es_titular && (
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Titular</span>
             )}
@@ -81,6 +120,22 @@ export default function ModalDetallePasajero({
             <div>
               <p className="text-gray-500">Fecha de nacimiento</p>
               <p className="text-black">{titular.fecha_nacimiento || 'No registrada'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Edad</p>
+              <p className="text-black">
+                {titular.edad !== null && titular.edad !== undefined ? `${titular.edad} años` : 'No disponible'}
+                {titular.es_menor_3 && (
+                  <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                    👶 No ocupa butaca
+                  </span>
+                )}
+                {titular.es_menor_18 && !titular.es_menor_3 && (
+                  <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
+                    🧒 Menor de edad
+                  </span>
+                )}
+              </p>
             </div>
             <div>
               <p className="text-gray-500">Género</p>
@@ -154,11 +209,20 @@ export default function ModalDetallePasajero({
                 <div key={m.id} className="border rounded-lg p-3">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <p className="font-medium text-sm text-black">{m.nombre_pasajero}</p>
+                      <p className="font-medium text-sm text-black">{m.nombre} {m.apellido}</p>
                       <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-1">
                         <p className="text-black">DNI: {m.numero_documento || 'No registrado'}</p>
                         {m.parentesco_con_titular && <p className="text-black">Parentesco: {m.parentesco_con_titular}</p>}
                         {m.fecha_nacimiento && <p className="text-black">Fecha nac.: {m.fecha_nacimiento}</p>}
+                        {m.edad !== null && m.edad !== undefined && (
+                          <p className="text-black">Edad: {m.edad} años</p>
+                        )}
+                        {m.es_menor_3 && (
+                          <p className="text-blue-600">👶 No ocupa butaca</p>
+                        )}
+                        {m.es_menor_18 && !m.es_menor_3 && (
+                          <p className="text-yellow-600">🧒 Menor de edad</p>
+                        )}
                         {m.enfermedad && <p className="text-black">Enfermedad: {m.enfermedad}</p>}
                         {m.alergia && <p className="text-black">Alergia: {m.alergia}</p>}
                         {m.dieta_especial && <p className="text-black">Dieta: {m.dieta_especial}</p>}
@@ -177,7 +241,7 @@ export default function ModalDetallePasajero({
         {/* BOTONES */}
         <div className="flex flex-wrap gap-2 mt-4">
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="flex-1 border rounded-lg p-2 hover:bg-gray-50 text-black"
             type="button"
           >
@@ -186,7 +250,7 @@ export default function ModalDetallePasajero({
           
           {onEditar && (
             <button
-              onClick={onEditar}
+              onClick={handleEditar}
               className="flex-1 bg-blue-600 text-white rounded-lg p-2 hover:bg-blue-700 disabled:opacity-50"
               type="button"
             >
@@ -196,7 +260,7 @@ export default function ModalDetallePasajero({
           
           {onEliminar && (
             <button
-              onClick={onEliminar}
+              onClick={handleEliminar}
               className="flex-1 bg-red-600 text-white rounded-lg p-2 hover:bg-red-700 disabled:opacity-50"
               type="button"
             >
@@ -204,10 +268,20 @@ export default function ModalDetallePasajero({
             </button>
           )}
           
+          {onCancelar && (
+            <button
+              onClick={handleCancelar}
+              className="flex-1 bg-orange-600 text-white rounded-lg p-2 hover:bg-orange-700 disabled:opacity-50"
+              type="button"
+            >
+              ❌ Cancelar
+            </button>
+          )}
+          
           <button
-            onClick={onAprobar}
+            onClick={handleAprobar}
             className="flex-1 bg-gray-900 text-white rounded-lg p-2 hover:bg-gray-800 disabled:opacity-50"
-            disabled={estaAprobando || pasajero.estado_revision === 'aprobado'}
+            disabled={pasajero.estado_revision === 'aprobado'}
             type="button"
           >
             {estaAprobando ? 'Aprobando...' : '✅ Aprobar'}

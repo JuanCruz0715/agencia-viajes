@@ -1,48 +1,306 @@
-import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
-import BotonImprimir from '@/components/BotonImprimir'
+'use client'
 
-export default async function ReciboPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const supabase = await createClient()
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
+import Image from 'next/image'
+import { createClient } from '@/lib/supabase/client'
 
-  const { data: pago, error } = await supabase
-    .from('pagos')
-    .select('*, pasajeros(nombre_pasajero, numero_documento, monto_pagado, monto_total), viajes(destino, fecha_inicio, fecha_fin)')
-    .eq('id', id)
-    .single()
+const SN_AZUL = '#1B3A5C'
+const SN_CELESTE = '#2D9CB8'
 
-  if (error || !pago) {
-    notFound()
+type Pago = {
+  id: string
+  pasajero_id: string
+  viaje_id: string
+  monto: number
+  metodo_pago: string
+  tipo_tarjeta?: string
+  cantidad_cuotas?: number
+  recargo_aplicado?: number
+  monto_original?: number
+  monto_final?: number
+  created_at: string
+  numero_recibo: number
+  pasajeros?: {
+    id: string
+    nombre: string
+    apellido: string
+    nombre_pasajero: string
+    numero_documento: string
+    monto_total: number
+    monto_pagado: number
+    estado_pago: string
+  }
+  viajes?: {
+    destino: string
+    fecha_inicio: string
+    fecha_fin: string
+  }
+}
+
+export default function ReciboPage() {
+  const params = useParams()
+  const [pago, setPago] = useState<Pago | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const cargarPago = async () => {
+      const supabase = createClient()
+      
+      // Primero obtener el pago
+      const { data: pagoData, error: pagoError } = await supabase
+        .from('pagos')
+        .select('*')
+        .eq('id', params.id)
+        .single()
+
+      if (pagoError) {
+        setError(pagoError.message)
+        setCargando(false)
+        return
+      }
+
+      // Luego obtener el pasajero con sus montos totales
+      const { data: pasajeroData, error: pasajeroError } = await supabase
+        .from('pasajeros')
+        .select('id, nombre, apellido, nombre_pasajero, numero_documento, monto_total, monto_pagado, estado_pago')
+        .eq('id', pagoData.pasajero_id)
+        .single()
+
+      if (pasajeroError) {
+        setError(pasajeroError.message)
+        setCargando(false)
+        return
+      }
+
+      // Obtener el viaje
+      const { data: viajeData, error: viajeError } = await supabase
+        .from('viajes')
+        .select('destino, fecha_inicio, fecha_fin')
+        .eq('id', pagoData.viaje_id)
+        .single()
+
+      // Combinar los datos
+      setPago({
+        ...pagoData,
+        pasajeros: pasajeroData,
+        viajes: viajeData || undefined
+      })
+      
+      setCargando(false)
+    }
+
+    cargarPago()
+  }, [params.id])
+
+  const handleImprimir = () => {
+    window.print()
   }
 
-  const pasajero = pago.pasajeros as any
-  const viaje = pago.viajes as any
-  const saldo = (pasajero?.monto_total ?? 0) - (pasajero?.monto_pagado ?? 0)
+  if (cargando) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8" style={{ background: '#F5F8FA' }}>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto" style={{ borderColor: SN_CELESTE }}></div>
+          <p className="mt-4 text-gray-500">Cargando recibo...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !pago) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8" style={{ background: '#F5F8FA' }}>
+        <div className="text-center max-w-sm">
+          <div className="text-5xl mb-4">😕</div>
+          <h1 className="text-xl font-semibold text-gray-800">Recibo no encontrado</h1>
+          <p className="text-gray-500 mt-2">El recibo que buscas no existe o fue eliminado.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const metodoPago = pago.metodo_pago || 'No especificado'
+  const esTarjeta = metodoPago === 'Tarjeta'
+  const tipoTarjeta = pago.tipo_tarjeta || ''
+  const cantidadCuotas = pago.cantidad_cuotas || 1
+  const recargoAplicado = pago.recargo_aplicado || 0
+  const recargoPorcentaje = Math.round(recargoAplicado * 100)
+  const montoOriginal = pago.monto_original || pago.monto
+  const montoFinal = pago.monto_final || pago.monto
+
+  // Calcular saldo pendiente REAL
+  const montoTotalPasajero = pago.pasajeros?.monto_total || 0
+  const montoPagadoPasajero = pago.pasajeros?.monto_pagado || 0
+  const saldoPendiente = Math.max(0, montoTotalPasajero - montoPagadoPasajero)
+
+  // Mostrar detalle de pago
+  let detallePago = ''
+  if (esTarjeta) {
+    if (tipoTarjeta === 'debito') {
+      detallePago = 'Tarjeta de Débito - Pago único'
+    } else if (tipoTarjeta === 'credito') {
+      if (cantidadCuotas === 1) {
+        detallePago = 'Tarjeta de Crédito - Pago único'
+      } else {
+        detallePago = `Tarjeta de Crédito - ${cantidadCuotas} cuotas`
+        if (recargoAplicado > 0) {
+          detallePago += ` (${recargoPorcentaje}% recargo)`
+        }
+      }
+    }
+  } else {
+    detallePago = metodoPago
+  }
+
+  const nombreCompleto = pago.pasajeros?.nombre_pasajero || 
+    `${pago.pasajeros?.nombre || ''} ${pago.pasajeros?.apellido || ''}`.trim() || 
+    'No disponible'
+
+  // Estado del pago del pasajero
+  const estaPagado = pago.pasajeros?.estado_pago === 'pagado' || saldoPendiente <= 0
 
   return (
-    <main className="p-8 max-w-md mx-auto">
-      <div className="border rounded-lg p-6">
-        <p className="text-center text-sm text-gray-500 mb-1">SN Viajes y Turismo</p>
-        <h1 className="text-center text-lg font-semibold mb-4">Recibo de pago Nº {pago.numero_recibo}</h1>
-
-        <div className="text-sm space-y-1 mb-4">
-          <p><span className="text-gray-500">Fecha:</span> {new Date(pago.created_at).toLocaleDateString('es-AR')}</p>
-          <p><span className="text-gray-500">Pasajero:</span> {pasajero?.nombre_pasajero}</p>
-          <p><span className="text-gray-500">Documento:</span> {pasajero?.numero_documento}</p>
-          <p><span className="text-gray-500">Viaje:</span> {viaje?.destino}</p>
-          <p><span className="text-gray-500">Fechas:</span> {viaje?.fecha_inicio} a {viaje?.fecha_fin}</p>
-        </div>
-
-        <div className="border-t pt-4 text-sm space-y-1">
-          <p className="flex justify-between"><span>Monto abonado ahora:</span><span className="font-medium">${pago.monto}</span></p>
-          <p className="flex justify-between"><span>Total pagado a la fecha:</span><span>${pasajero?.monto_pagado ?? 0}</span></p>
-          <p className="flex justify-between"><span>Saldo pendiente:</span><span>${saldo > 0 ? saldo : 0}</span></p>
-          <p><span className="text-gray-500">Método de pago:</span> {pago.metodo_pago}</p>
-        </div>
-
-        <BotonImprimir />
+    <div className="min-h-screen p-4 md:p-8" style={{ background: '#F5F8FA' }}>
+      {/* Botón imprimir */}
+      <div className="max-w-2xl mx-auto mb-4 flex justify-end print:hidden">
+        <button
+          onClick={handleImprimir}
+          className="px-4 py-2 rounded-lg text-white font-medium flex items-center gap-2"
+          style={{ background: SN_AZUL }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+          </svg>
+          Imprimir / Guardar como PDF
+        </button>
       </div>
-    </main>
+
+      {/* RECIBO */}
+      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8 print:shadow-none">
+        {/* Logo y título */}
+        <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: SN_CELESTE }}>
+          <div className="flex items-center gap-3">
+            <div className="relative w-16 h-16">
+              <Image
+                src="/logo-sn.png"
+                alt="SN Viajes y Turismo"
+                fill
+                className="object-contain"
+                sizes="64px"
+              />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold" style={{ color: SN_AZUL }}>SN Viajes y Turismo</h1>
+              <p className="text-xs" style={{ color: SN_CELESTE }}>Recibo de pago Nº {pago.numero_recibo}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-gray-500">Fecha</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>
+              {new Date(pago.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+            </p>
+          </div>
+        </div>
+
+        {/* Datos del pasajero */}
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-gray-500">Pasajero</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>{nombreCompleto}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Documento</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>{pago.pasajeros?.numero_documento || 'No disponible'}</p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-xs text-gray-500">Viaje</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>{pago.viajes?.destino || 'No disponible'}</p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-xs text-gray-500">Fechas</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>
+              {pago.viajes?.fecha_inicio || ''} a {pago.viajes?.fecha_fin || ''}
+            </p>
+          </div>
+        </div>
+
+        {/* Detalle del pago */}
+        <div className="mt-6 border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-gray-500">Monto abonado ahora</p>
+              <p className="text-lg font-bold" style={{ color: SN_AZUL }}>
+                ${montoFinal.toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Total pagado a la fecha</p>
+              <p className="text-lg font-bold" style={{ color: SN_CELESTE }}>
+                ${(pago.pasajeros?.monto_pagado || 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Detalle de cuotas y recargo (si aplica) */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-xs text-gray-500">Método de pago</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>{detallePago}</p>
+          </div>
+          {esTarjeta && tipoTarjeta === 'credito' && cantidadCuotas > 1 && (
+            <div>
+              <p className="text-xs text-gray-500">Recargo aplicado</p>
+              <p className="text-sm font-medium" style={{ color: '#854F0B' }}>
+                {recargoPorcentaje}% (${(recargoAplicado * montoOriginal).toFixed(2)})
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Detalle adicional de cuotas */}
+        {esTarjeta && tipoTarjeta === 'credito' && cantidadCuotas > 1 && (
+          <div className="mt-2 p-3 rounded-lg" style={{ background: '#F0F8FA' }}>
+            <p className="text-xs text-gray-500">Detalle de cuotas</p>
+            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>
+              {cantidadCuotas} cuota{cantidadCuotas > 1 ? 's' : ''} de ${(montoFinal / cantidadCuotas).toFixed(2)}
+              {recargoAplicado > 0 && (
+                <span className="text-xs text-gray-500 block">
+                  Monto original: ${montoOriginal.toFixed(2)} + recargo {recargoPorcentaje}% = ${montoFinal.toFixed(2)}
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+
+        {/* Saldo pendiente REAL */}
+        <div className="mt-4 border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-medium" style={{ color: SN_AZUL }}>Saldo pendiente</span>
+            <span 
+              className="text-sm font-bold"
+              style={{ 
+                color: saldoPendiente > 0 ? '#854F0B' : '#3B6D11'
+              }}
+            >
+              {saldoPendiente > 0 ? `$${saldoPendiente.toLocaleString()}` : '$0 - ¡Pagado! ✅'}
+            </span>
+          </div>
+          {saldoPendiente > 0 && (
+            <div className="mt-1 text-xs text-amber-600">
+              ⚠️ El pasajero aún debe ${saldoPendiente.toLocaleString()}
+            </div>
+          )}
+        </div>
+
+        {/* Pie de página */}
+        <div className="mt-6 text-center text-xs text-gray-400 border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
+          <p>Este recibo es un comprobante de pago válido.</p>
+          <p>SN Viajes y Turismo - Todos los derechos reservados.</p>
+        </div>
+      </div>
+    </div>
   )
 }

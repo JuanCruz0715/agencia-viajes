@@ -6,7 +6,7 @@ type Props = {
   nombrePasajero: string
   esGrupo?: boolean
   miembros?: { id: string; nombre: string; montoTotal?: number; montoPagado?: number }[]
-  onConfirm: (monto: number, metodo: string, grupoId?: string) => void
+  onConfirm: (monto: number, metodo: string, tipoTarjeta?: string, cuotas?: number, recargo?: number) => void
   onCancel: () => void
   guardando: boolean
 }
@@ -22,6 +22,12 @@ export default function ModalPago({
   const [monto, setMonto] = useState('')
   const [metodo, setMetodo] = useState('Efectivo')
   const [distribuir, setDistribuir] = useState(true)
+  
+  // Estados para tarjeta
+  const [tipoTarjeta, setTipoTarjeta] = useState<'debito' | 'credito'>('debito')
+  const [cantidadCuotas, setCantidadCuotas] = useState(1)
+  const [recargoPersonalizado, setRecargoPersonalizado] = useState<number>(0)
+  const [mostrarDetalleCuotas, setMostrarDetalleCuotas] = useState(false)
 
   const calcularDeudaPorPersona = () => {
     if (!esGrupo || miembros.length === 0) return 0
@@ -39,6 +45,14 @@ export default function ModalPago({
 
   const deudaPorPersona = calcularDeudaPorPersona()
 
+  const esTarjeta = metodo === 'Tarjeta'
+  const esCredito = esTarjeta && tipoTarjeta === 'credito'
+
+  const montoNum = parseFloat(monto) || 0
+  const recargoDecimal = recargoPersonalizado / 100
+  const montoConRecargo = montoNum * (1 + recargoDecimal)
+  const recargoEnPesos = montoConRecargo - montoNum
+
   const handleConfirm = () => {
     const montoNum = parseFloat(monto)
     if (!montoNum || montoNum <= 0) return
@@ -47,12 +61,22 @@ export default function ModalPago({
       ? montoNum / miembros.length 
       : montoNum
     
-    onConfirm(montoFinal, metodo)
+    let tipoTarjetaFinal: string | undefined = undefined
+    let cuotasFinal = 1
+    let recargoFinal = 0
+    
+    if (metodo === 'Tarjeta') {
+      tipoTarjetaFinal = tipoTarjeta
+      cuotasFinal = cantidadCuotas
+      recargoFinal = recargoDecimal
+    }
+    
+    onConfirm(montoFinal, metodo, tipoTarjetaFinal, cuotasFinal, recargoFinal)
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-5 w-full max-w-sm">
+      <div className="bg-white rounded-lg p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <h2 className="font-medium mb-1 text-black">
           {esGrupo ? `Registrar pago grupal (${miembros.length} personas)` : 'Registrar pago'}
         </h2>
@@ -110,8 +134,13 @@ export default function ModalPago({
         <label className="text-sm text-gray-600 block mb-1">Método de pago</label>
         <select 
           value={metodo} 
-          onChange={(e) => setMetodo(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-4 text-black bg-white"
+          onChange={(e) => {
+            setMetodo(e.target.value)
+            if (e.target.value !== 'Tarjeta') {
+              setMostrarDetalleCuotas(false)
+            }
+          }} 
+          className="w-full border rounded-lg p-2 mb-3 text-black bg-white"
         >
           <option className="text-black">Efectivo</option>
           <option className="text-black">Transferencia</option>
@@ -119,7 +148,92 @@ export default function ModalPago({
           <option className="text-black">Otro</option>
         </select>
 
-        <div className="flex gap-2">
+        {esTarjeta && (
+          <div className="bg-gray-50 rounded-lg p-3 mb-3">
+            <label className="text-sm text-gray-600 block mb-1">Tipo de tarjeta</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTipoTarjeta('debito')
+                  setMostrarDetalleCuotas(false)
+                  setRecargoPersonalizado(0)
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                  tipoTarjeta === 'debito' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                💳 Débito
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTipoTarjeta('credito')
+                  setMostrarDetalleCuotas(true)
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                  tipoTarjeta === 'credito' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                💳 Crédito
+              </button>
+            </div>
+
+            {esCredito && (
+              <div className="mt-3">
+                <label className="text-sm text-gray-600 block mb-1">Cantidad de cuotas</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="36"
+                  value={cantidadCuotas}
+                  onChange={(e) => setCantidadCuotas(Number(e.target.value) || 1)}
+                  className="w-full border rounded-lg p-2 text-black bg-white mb-2"
+                />
+                
+                <label className="text-sm text-gray-600 block mb-1">Recargo (%)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={recargoPersonalizado}
+                  onChange={(e) => setRecargoPersonalizado(Number(e.target.value) || 0)}
+                  className="w-full border rounded-lg p-2 text-black bg-white"
+                  placeholder="Ej: 5, 10, 15, 20"
+                />
+
+                {montoNum > 0 && (
+                  <div className="mt-2 p-2 bg-blue-50 rounded-lg text-sm">
+                    <p className="text-gray-700">
+                      <span className="font-medium">Resumen:</span><br />
+                      Monto original: <span className="font-medium">${montoNum.toFixed(2)}</span><br />
+                      Recargo: <span className="font-medium text-amber-600">${recargoEnPesos.toFixed(2)} ({recargoPersonalizado}%)</span><br />
+                      <span className="font-bold text-blue-700">Total a pagar: ${montoConRecargo.toFixed(2)}</span><br />
+                      <span className="text-xs text-gray-500">{cantidadCuotas} cuota{cantidadCuotas > 1 ? 's' : ''} de ${(montoConRecargo / cantidadCuotas).toFixed(2)}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {esTarjeta && tipoTarjeta === 'debito' && montoNum > 0 && (
+              <div className="mt-2 p-2 bg-green-50 rounded-lg text-sm">
+                <p className="text-gray-700">
+                  <span className="font-medium">Total a pagar: ${montoNum.toFixed(2)}</span>
+                  <br />
+                  <span className="text-xs text-gray-500">Sin recargo por pago con débito</span>
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
           <button 
             onClick={onCancel} 
             className="flex-1 border rounded-lg p-2 text-black hover:bg-gray-50"

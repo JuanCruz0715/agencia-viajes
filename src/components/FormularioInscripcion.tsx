@@ -1,34 +1,58 @@
-// FormularioInscripcion.tsx - Placeholders en negro y fondo claro
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 
 type Viaje = { id: string; destino: string; fecha_inicio: string; fecha_fin: string; precio: number }
 
 type Acompanante = {
   nombre: string
+  apellido: string
   documento: string
   fechaNacimiento: string
   parentesco: string
   enfermedad: string
   alergia: string
   dieta: string
+  nacionalidad: string
 }
 
 const acompananteVacio: Acompanante = {
-  nombre: '', documento: '', fechaNacimiento: '', parentesco: '', enfermedad: '', alergia: '', dieta: ''
+  nombre: '',
+  apellido: '',
+  documento: '',
+  fechaNacimiento: '',
+  parentesco: '',
+  enfermedad: '',
+  alergia: '',
+  dieta: '',
+  nacionalidad: ''
+}
+
+function calcularEdad(fechaNacimiento: string) {
+  if (!fechaNacimiento) return null
+  const hoy = new Date()
+  const nacimiento = new Date(fechaNacimiento)
+  let edad = hoy.getFullYear() - nacimiento.getFullYear()
+  const mes = hoy.getMonth() - nacimiento.getMonth()
+  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+    edad--
+  }
+  return edad
 }
 
 export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   const [viajeId, setViajeId] = useState('')
   const [nombre, setNombre] = useState('')
+  const [apellido, setApellido] = useState('')
   const [tipoDocumento, setTipoDocumento] = useState('DNI')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [email, setEmail] = useState('')
   const [telefono, setTelefono] = useState('')
   const [fechaNacimiento, setFechaNacimiento] = useState('')
   const [genero, setGenero] = useState('')
+  const [nacionalidad, setNacionalidad] = useState('')
   const [contactoNombre, setContactoNombre] = useState('')
   const [contactoTelefono, setContactoTelefono] = useState('')
   const [contactoParentesco, setContactoParentesco] = useState('')
@@ -72,13 +96,16 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
       viaje_id: viajeId,
       grupo_id: grupoId,
       es_titular: true,
-      nombre_pasajero: nombre,
+      nombre: nombre,
+      apellido: apellido,
+      nombre_pasajero: `${nombre} ${apellido}`,
       tipo_documento: tipoDocumento,
       numero_documento: numeroDocumento,
       email_pasajero: email,
       telefono_pasajero: telefono,
       fecha_nacimiento: fechaNacimiento || null,
       genero_pasajero: genero,
+      nacionalidad: nacionalidad || null,
       contacto_emergencia_nombre: contactoNombre,
       contacto_emergencia_telefono: contactoTelefono,
       contacto_emergencia_parentesco: contactoParentesco,
@@ -97,10 +124,15 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
         viaje_id: viajeId,
         grupo_id: grupoId,
         es_titular: false,
-        nombre_pasajero: a.nombre,
+        nombre: a.nombre,
+        apellido: a.apellido,
+        nombre_pasajero: `${a.nombre} ${a.apellido}`,
         numero_documento: a.documento,
+        tipo_documento: 'DNI',
         fecha_nacimiento: a.fechaNacimiento || null,
         parentesco_con_titular: a.parentesco,
+        genero_pasajero: null,
+        nacionalidad: a.nacionalidad || nacionalidad || null,
         contacto_emergencia_nombre: contactoNombre,
         contacto_emergencia_telefono: contactoTelefono,
         contacto_emergencia_parentesco: contactoParentesco,
@@ -125,244 +157,370 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
 
   if (enviado) {
     return (
-      <main className="flex items-center justify-center min-h-screen p-8">
-        <div className="text-center max-w-sm">
-          <h1 className="text-xl font-semibold mb-2">¡Listo! ✅</h1>
+      <main className="flex items-center justify-center min-h-screen p-8 bg-gray-50">
+        <div className="text-center max-w-sm bg-white p-8 rounded-xl shadow-lg">
+          <div className="text-6xl mb-4">✅</div>
+          <h1 className="text-2xl font-semibold mb-2 text-gray-800">¡Listo!</h1>
           <p className="text-gray-600">Tu inscripción fue enviada correctamente. La agencia la va a revisar y te va a contactar.</p>
         </div>
       </main>
     )
   }
 
+  const edadTitular = calcularEdad(fechaNacimiento)
+
   return (
-    <main className="flex items-center justify-center min-h-screen p-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-md">
-        <h1 className="text-xl font-semibold text-center mb-1 text-white">SN Viajes y Turismo</h1>
-        <p className="text-sm text-gray-600 text-center mb-6">Completá tus datos para confirmar tu lugar</p>
-
-        {/* Viaje */}
-        <p className="text-sm font-medium mt-4 mb-2 text-white">Viaje</p>
-        <select 
-          required 
-          value={viajeId} 
-          onChange={(e) => setViajeId(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-4 bg-white text-black"
-        >
-          <option value="" className="text-black">Seleccioná un viaje</option>
-          {viajes.map((v) => (
-            <option key={v.id} value={v.id} className="text-black">
-              {v.destino} · {v.fecha_inicio} a {v.fecha_fin} · ${v.precio?.toLocaleString('es-AR')}
-            </option>
-          ))}
-        </select>
-
-        {/* Datos personales */}
-        <p className="text-sm font-medium mb-2 text-white">Tus datos</p>
-        <input 
-          required 
-          placeholder="Nombre y apellido" 
-          value={nombre} 
-          onChange={(e) => setNombre(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 py-8 px-4">
+      <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl p-6 md:p-8">
+        {/* TITULO */}
+        <h1 className="text-2xl font-bold text-center text-gray-800 mb-2">✈️ SN Viajes y Turismo</h1>
         
-        <div className="flex gap-2 mb-3">
-          <select 
-            value={tipoDocumento} 
-            onChange={(e) => setTipoDocumento(e.target.value)} 
-            className="border rounded-lg p-2 bg-white text-black"
-          >
-            <option className="text-black">DNI</option>
-            <option className="text-black">Pasaporte</option>
-          </select>
+        {/* LOGO */}
+        <div className="flex justify-center mb-4">
+          <div className="relative w-56 h-24">
+            <Image
+              src="/logo-sn.png"
+              alt="SN Viajes y Turismo"
+              fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              className="object-contain"
+              priority
+            />
+          </div>
+        </div>
+
+        <p className="text-sm text-gray-500 text-center mb-6">Completá tus datos para confirmar tu lugar</p>
+        <div className="w-20 h-1 bg-blue-500 mx-auto mb-6 rounded-full"></div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Viaje */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-1.5">
+              📍 Viaje
+            </label>
+            <select 
+              required 
+              value={viajeId} 
+              onChange={(e) => setViajeId(e.target.value)} 
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-white text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            >
+              <option value="" className="text-gray-500">Seleccioná un viaje</option>
+              {viajes.map((v) => (
+                <option key={v.id} value={v.id} className="text-gray-800">
+                  {v.destino} · {v.fecha_inicio} a {v.fecha_fin} · ${v.precio?.toLocaleString('es-AR')}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Datos personales */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-2">
+              👤 Tus datos
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <input 
+                required 
+                placeholder="Nombre" 
+                value={nombre} 
+                onChange={(e) => setNombre(e.target.value)} 
+                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+              />
+              <input 
+                required 
+                placeholder="Apellido" 
+                value={apellido} 
+                onChange={(e) => setApellido(e.target.value)} 
+                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Documento */}
+          <div className="grid grid-cols-3 gap-3">
+            <select 
+              value={tipoDocumento} 
+              onChange={(e) => setTipoDocumento(e.target.value)} 
+              className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            >
+              <option className="text-gray-800">DNI</option>
+              <option className="text-gray-800">Pasaporte</option>
+              <option className="text-gray-800">LE</option>
+              <option className="text-gray-800">LC</option>
+            </select>
+            <input 
+              required 
+              placeholder="Número de documento" 
+              value={numeroDocumento} 
+              onChange={(e) => setNumeroDocumento(e.target.value)} 
+              className="col-span-2 border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            />
+          </div>
+
+          {/* Email y Teléfono */}
           <input 
             required 
-            placeholder="Número de documento" 
-            value={numeroDocumento} 
-            onChange={(e) => setNumeroDocumento(e.target.value)} 
-            className="flex-1 border rounded-lg p-2 bg-white text-black placeholder-black" 
+            type="email" 
+            placeholder="📧 Email" 
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+            className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
           />
-        </div>
-        
-        <input 
-          required 
-          type="email" 
-          placeholder="Email" 
-          value={email} 
-          onChange={(e) => setEmail(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        <input 
-          required 
-          placeholder="Teléfono" 
-          value={telefono} 
-          onChange={(e) => setTelefono(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        
-        <div className="flex flex-col mb-3">
-          <label className="text-sm font-medium text-white mb-1">Fecha de nacimiento</label>
           <input 
-            type="date" 
-            value={fechaNacimiento} 
-            onChange={(e) => setFechaNacimiento(e.target.value)} 
-            className="w-full border rounded-lg p-2 bg-white text-black" 
+            required 
+            placeholder="📱 Teléfono" 
+            value={telefono} 
+            onChange={(e) => setTelefono(e.target.value)} 
+            className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
           />
-        </div>
 
-        <select 
-          value={genero} 
-          onChange={(e) => setGenero(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-4 bg-white text-black"
-        >
-          <option value="" className="text-black">Género</option>
-          <option className="text-black">Femenino</option>
-          <option className="text-black">Masculino</option>
-          <option className="text-black">Otro</option>
-          <option className="text-black">Prefiero no decir</option>
-        </select>
+          {/* Fecha de nacimiento */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-1.5">
+              🎂 Fecha de nacimiento
+            </label>
+            <input 
+              type="date" 
+              value={fechaNacimiento} 
+              onChange={(e) => setFechaNacimiento(e.target.value)} 
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            />
+            {fechaNacimiento && edadTitular !== null && (
+              <div className="mt-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                <p className="text-sm text-gray-700">
+                  Edad: <span className="font-semibold text-blue-600">{edadTitular} años</span>
+                </p>
+              </div>
+            )}
+          </div>
 
-        {/* Contacto de emergencia */}
-        <p className="text-sm font-medium mb-2 text-white">Contacto de emergencia</p>
-        <input 
-          required 
-          placeholder="Nombre" 
-          value={contactoNombre} 
-          onChange={(e) => setContactoNombre(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        <input 
-          required 
-          placeholder="Teléfono" 
-          value={contactoTelefono} 
-          onChange={(e) => setContactoTelefono(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        <input 
-          required 
-          placeholder="Parentesco" 
-          value={contactoParentesco} 
-          onChange={(e) => setContactoParentesco(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-4 bg-white text-black placeholder-black" 
-        />
+          {/* Género y Nacionalidad */}
+          <div className="grid grid-cols-2 gap-3">
+            <select 
+              value={genero} 
+              onChange={(e) => setGenero(e.target.value)} 
+              className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            >
+              <option value="" className="text-gray-500">Género</option>
+              <option className="text-gray-800">Femenino</option>
+              <option className="text-gray-800">Masculino</option>
+              <option className="text-gray-800">Otro</option>
+              <option className="text-gray-800">Prefiero no decir</option>
+            </select>
+            <input 
+              placeholder="🌍 Nacionalidad" 
+              value={nacionalidad} 
+              onChange={(e) => setNacionalidad(e.target.value)} 
+              className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            />
+          </div>
 
-        {/* Información médica */}
-        <p className="text-sm font-medium mb-2 text-white">Información médica</p>
-        <input 
-          placeholder="Enfermedad" 
-          value={enfermedad} 
-          onChange={(e) => setEnfermedad(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        <input 
-          placeholder="Alergia" 
-          value={alergia} 
-          onChange={(e) => setAlergia(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        <input 
-          placeholder="Dieta especial" 
-          value={dieta} 
-          onChange={(e) => setDieta(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-3 bg-white text-black placeholder-black" 
-        />
-        <textarea 
-          placeholder="Sugerencias (opcional)" 
-          value={sugerencias} 
-          onChange={(e) => setSugerencias(e.target.value)} 
-          className="w-full border rounded-lg p-2 mb-4 bg-white text-black placeholder-black" 
-        />
+          {/* Contacto de emergencia */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-2">
+              🆘 Contacto de emergencia
+            </label>
+            <input 
+              required 
+              placeholder="Nombre" 
+              value={contactoNombre} 
+              onChange={(e) => setContactoNombre(e.target.value)} 
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <input 
+                required 
+                placeholder="Teléfono" 
+                value={contactoTelefono} 
+                onChange={(e) => setContactoTelefono(e.target.value)} 
+                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+              />
+              <input 
+                required 
+                placeholder="Parentesco" 
+                value={contactoParentesco} 
+                onChange={(e) => setContactoParentesco(e.target.value)} 
+                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+              />
+            </div>
+          </div>
 
-        {/* Grupo */}
-        <label className="flex items-center gap-2 text-sm mb-3 border-t pt-4 text-white">
-          <input type="checkbox" checked={tieneGrupo} onChange={(e) => setTieneGrupo(e.target.checked)} />
-          Viajo en grupo
-        </label>
+          {/* Información médica */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-2">
+              🏥 Información médica
+            </label>
+            <input 
+              placeholder="Enfermedad" 
+              value={enfermedad} 
+              onChange={(e) => setEnfermedad(e.target.value)} 
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+            />
+            <input 
+              placeholder="Alergia" 
+              value={alergia} 
+              onChange={(e) => setAlergia(e.target.value)} 
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+            />
+            <input 
+              placeholder="Dieta especial" 
+              value={dieta} 
+              onChange={(e) => setDieta(e.target.value)} 
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+            />
+            <textarea 
+              placeholder="Sugerencias (opcional)" 
+              value={sugerencias} 
+              onChange={(e) => setSugerencias(e.target.value)} 
+              rows={3}
+              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none resize-none"
+            />
+          </div>
 
-        {tieneGrupo && (
-          <div className="mb-4">
-            <p className="text-xs text-gray-500 mb-3">El viaje y el contacto de emergencia son los mismos para todo el grupo.</p>
-            {acompanantes.map((a, i) => (
-              <div key={i} className="border rounded-lg p-3 mb-3">
-                <div className="flex justify-between items-center mb-2">
-                  <p className="text-sm font-medium text-black">Acompañante {i + 1}</p>
-                  <button type="button" onClick={() => quitarAcompanante(i)} className="text-xs text-red-600">Quitar</button>
-                </div>
-                <input 
-                  placeholder="Nombre" 
-                  value={a.nombre} 
-                  onChange={(e) => actualizarAcompanante(i, 'nombre', e.target.value)} 
-                  className="w-full border rounded-lg p-2 mb-2 bg-white text-black placeholder-black" 
-                />
-                <div className="flex gap-2 mb-2">
-                  <input 
-                    placeholder="DNI" 
-                    value={a.documento} 
-                    onChange={(e) => actualizarAcompanante(i, 'documento', e.target.value)} 
-                    className="flex-1 border rounded-lg p-2 bg-white text-black placeholder-black" 
-                  />
-                  <div className="flex-1">
-                    <label className="text-xs text-black block">Fecha nacimiento</label>
+          {/* Grupo */}
+          <div className="border-t border-gray-200 pt-4">
+            <label className="flex items-center gap-3 text-sm font-medium text-gray-700 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={tieneGrupo} 
+                onChange={(e) => setTieneGrupo(e.target.checked)} 
+                className="w-5 h-5 text-blue-600 border-2 border-gray-300 rounded focus:ring-2 focus:ring-blue-200 cursor-pointer"
+              />
+              Viajo en grupo
+            </label>
+          </div>
+
+          {tieneGrupo && (
+            <div className="border-2 border-dashed border-blue-200 rounded-xl p-4 bg-blue-50">
+              <p className="text-xs text-gray-500 mb-3">El viaje y el contacto de emergencia son los mismos para todo el grupo.</p>
+              {acompanantes.map((a, i) => {
+                const edadAcomp = calcularEdad(a.fechaNacimiento)
+                return (
+                  <div key={i} className="bg-white rounded-xl p-4 mb-3 border border-gray-200">
+                    <div className="flex justify-between items-center mb-3">
+                      <p className="text-sm font-medium text-gray-700">👤 Acompañante {i + 1}</p>
+                      <button 
+                        type="button" 
+                        onClick={() => quitarAcompanante(i)} 
+                        className="text-xs text-red-500 hover:text-red-700 font-medium"
+                      >
+                        ✕ Quitar
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <input 
+                        placeholder="Nombre" 
+                        value={a.nombre} 
+                        onChange={(e) => actualizarAcompanante(i, 'nombre', e.target.value)} 
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      />
+                      <input 
+                        placeholder="Apellido" 
+                        value={a.apellido} 
+                        onChange={(e) => actualizarAcompanante(i, 'apellido', e.target.value)} 
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <input 
+                        placeholder="DNI" 
+                        value={a.documento} 
+                        onChange={(e) => actualizarAcompanante(i, 'documento', e.target.value)} 
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      />
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Fecha nacimiento</label>
+                        <input 
+                          type="date" 
+                          value={a.fechaNacimiento} 
+                          onChange={(e) => actualizarAcompanante(i, 'fechaNacimiento', e.target.value)} 
+                          className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <select 
+                        value={a.parentesco} 
+                        onChange={(e) => actualizarAcompanante(i, 'parentesco', e.target.value)} 
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      >
+                        <option value="" className="text-gray-500">Parentesco</option>
+                        <option className="text-gray-800">Hijo/a</option>
+                        <option className="text-gray-800">Pareja</option>
+                        <option className="text-gray-800">Hermano/a</option>
+                        <option className="text-gray-800">Padre/Madre</option>
+                        <option className="text-gray-800">Otro</option>
+                      </select>
+                      <input 
+                        placeholder="🌍 Nacionalidad" 
+                        value={a.nacionalidad} 
+                        onChange={(e) => actualizarAcompanante(i, 'nacionalidad', e.target.value)} 
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      />
+                    </div>
+                    {a.fechaNacimiento && edadAcomp !== null && (
+                      <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
+                        <p className="text-xs text-gray-600">
+                          Edad: <span className="font-medium text-blue-600">{edadAcomp} años</span>
+                        </p>
+                      </div>
+                    )}
                     <input 
-                      type="date" 
-                      value={a.fechaNacimiento} 
-                      onChange={(e) => actualizarAcompanante(i, 'fechaNacimiento', e.target.value)} 
-                      className="w-full border rounded-lg p-2 bg-white text-black" 
+                      placeholder="Enfermedad" 
+                      value={a.enfermedad} 
+                      onChange={(e) => actualizarAcompanante(i, 'enfermedad', e.target.value)} 
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-2"
+                    />
+                    <input 
+                      placeholder="Alergia" 
+                      value={a.alergia} 
+                      onChange={(e) => actualizarAcompanante(i, 'alergia', e.target.value)} 
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-2"
+                    />
+                    <input 
+                      placeholder="Dieta especial" 
+                      value={a.dieta} 
+                      onChange={(e) => actualizarAcompanante(i, 'dieta', e.target.value)} 
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
                     />
                   </div>
-                </div>
-                <select 
-                  value={a.parentesco} 
-                  onChange={(e) => actualizarAcompanante(i, 'parentesco', e.target.value)} 
-                  className="w-full border rounded-lg p-2 mb-2 bg-white text-black"
-                >
-                  <option value="" className="text-black">Parentesco</option>
-                  <option className="text-black">Hijo/a</option>
-                  <option className="text-black">Pareja</option>
-                  <option className="text-black">Hermano/a</option>
-                  <option className="text-black">Padre/Madre</option>
-                  <option className="text-black">Otro</option>
-                </select>
-                <input 
-                  placeholder="Enfermedad" 
-                  value={a.enfermedad} 
-                  onChange={(e) => actualizarAcompanante(i, 'enfermedad', e.target.value)} 
-                  className="w-full border rounded-lg p-2 mb-2 bg-white text-black placeholder-black" 
-                />
-                <input 
-                  placeholder="Alergia" 
-                  value={a.alergia} 
-                  onChange={(e) => actualizarAcompanante(i, 'alergia', e.target.value)} 
-                  className="w-full border rounded-lg p-2 mb-2 bg-white text-black placeholder-black" 
-                />
-                <input 
-                  placeholder="Dieta especial" 
-                  value={a.dieta} 
-                  onChange={(e) => actualizarAcompanante(i, 'dieta', e.target.value)} 
-                  className="w-full border rounded-lg p-2 bg-white text-black placeholder-black" 
-                />
-              </div>
-            ))}
-            <button 
-              type="button" 
-              onClick={agregarAcompanante} 
-              className="w-full border rounded-lg p-2 text-sm text-black bg-white hover:bg-gray-50"
-            >
-              + Agregar acompañante
-            </button>
-          </div>
-        )}
+                )
+              })}
+              <button 
+                type="button" 
+                onClick={agregarAcompanante} 
+                className="w-full border-2 border-dashed border-blue-300 rounded-xl p-3 text-sm text-blue-600 hover:bg-blue-100 hover:border-blue-400 transition-all font-medium"
+              >
+                + Agregar acompañante
+              </button>
+            </div>
+          )}
 
-        {errorMsg && <p className="text-sm text-red-600 mb-3">{errorMsg}</p>}
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-sm text-red-600">{errorMsg}</p>
+            </div>
+          )}
 
-        <button 
-          type="submit" 
-          disabled={enviando} 
-          className="w-full rounded-lg p-2 bg-gray-900 text-white disabled:opacity-50 hover:bg-gray-800"
-        >
-          {enviando ? 'Enviando...' : 'Enviar inscripción'}
-        </button>
-      </form>
+          <button 
+            type="submit" 
+            disabled={enviando} 
+            className="w-full rounded-xl p-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50 hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg hover:shadow-xl"
+          >
+            {enviando ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Enviando...
+              </span>
+            ) : (
+              '📨 Enviar inscripción'
+            )}
+          </button>
+        </form>
+      </div>
     </main>
   )
 }

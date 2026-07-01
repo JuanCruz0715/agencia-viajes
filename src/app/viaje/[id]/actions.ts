@@ -9,7 +9,9 @@ import { revalidatePath } from 'next/cache'
 
 type PasajeroResumen = {
   id: string
-  nombre_pasajero: string
+  nombre: string | null
+  apellido: string | null
+  nombre_pasajero: string | null
   monto_pagado: number | null
   monto_total: number | null
   estado_pago: string
@@ -30,7 +32,7 @@ type ResumenPagos = {
 }
 
 // ============================================
-// FUNCIONES
+// FUNCIONES EXISTENTES
 // ============================================
 
 export async function aprobarPasajero(pasajeroId: string, viajeId: string) {
@@ -71,16 +73,23 @@ export async function registrarPago(
   metodoPago: string, 
   viajeId: string,
   esPagoGrupal: boolean = false,
-  grupoId?: string
+  grupoId?: string,
+  tipoTarjeta?: string,
+  cantidadCuotas?: number,
+  recargoAplicado?: number
 ) {
   const supabase = await createClient()
+
+  // Calcular monto final con recargo
+  const montoOriginal = monto
+  const montoFinal = recargoAplicado ? monto * (1 + recargoAplicado) : monto
 
   // Si es pago grupal y tenemos grupoId
   if (esPagoGrupal && grupoId) {
     // Obtener todos los miembros del grupo
     const { data: miembros, error: errorMiembros } = await supabase
       .from('pasajeros')
-      .select('id, monto_pagado, monto_total, nombre_pasajero')
+      .select('id, monto_pagado, monto_total, nombre, apellido, nombre_pasajero')
       .eq('grupo_id', grupoId)
 
     if (errorMiembros || !miembros || miembros.length === 0) {
@@ -92,7 +101,7 @@ export async function registrarPago(
 
     // Procesar cada miembro del grupo
     for (const miembro of miembros) {
-      const nuevoMonto = (miembro.monto_pagado ?? 0) + monto
+      const nuevoMonto = (miembro.monto_pagado ?? 0) + montoFinal
       const totalDeuda = miembro.monto_total ?? 0
       const nuevoEstado = nuevoMonto >= totalDeuda ? 'pagado' : 'pendiente'
 
@@ -110,15 +119,21 @@ export async function registrarPago(
         continue
       }
 
-      // Registrar el pago individual (sin las columnas que no existen)
+      // Registrar el pago individual con los nuevos campos
       const { data: pago, error: errorPago } = await supabase
         .from('pagos')
         .insert({ 
           pasajero_id: miembro.id, 
           viaje_id: viajeId, 
-          monto, 
-          metodo_pago: metodoPago
-          // NOTA: No incluyo es_pago_grupal ni grupo_id porque no existen en tu tabla
+          monto: montoFinal,
+          metodo_pago: metodoPago,
+          tipo_tarjeta: tipoTarjeta || null,
+          cantidad_cuotas: cantidadCuotas || 1,
+          recargo_aplicado: recargoAplicado || 0,
+          monto_original: montoOriginal,
+          monto_final: montoFinal,
+          es_pago_grupal: true,
+          grupo_id: grupoId
         })
         .select('id')
         .single()
@@ -150,7 +165,7 @@ export async function registrarPago(
     return { error: 'No se encontró el pasajero', pagoId: null, pagoIds: [] }
   }
 
-  const nuevoMonto = (pasajero.monto_pagado ?? 0) + monto
+  const nuevoMonto = (pasajero.monto_pagado ?? 0) + montoFinal
   const totalDeuda = pasajero.monto_total ?? 0
   const nuevoEstado = nuevoMonto >= totalDeuda ? 'pagado' : 'pendiente'
 
@@ -168,8 +183,15 @@ export async function registrarPago(
     .insert({ 
       pasajero_id: pasajeroId, 
       viaje_id: viajeId, 
-      monto, 
-      metodo_pago: metodoPago
+      monto: montoFinal,
+      metodo_pago: metodoPago,
+      tipo_tarjeta: tipoTarjeta || null,
+      cantidad_cuotas: cantidadCuotas || 1,
+      recargo_aplicado: recargoAplicado || 0,
+      monto_original: montoOriginal,
+      monto_final: montoFinal,
+      es_pago_grupal: false,
+      grupo_id: null
     })
     .select('id')
     .single()
@@ -182,13 +204,137 @@ export async function registrarPago(
   return { error: null, pagoId: pago.id, pagoIds: [pago.id] }
 }
 
-// Función auxiliar para obtener los miembros de un grupo
+// ============================================
+// CANCELAR PASAJERO
+// ============================================
+
+export async function cancelarPasajero(
+  pasajeroId: string,
+  viajeId: string,
+  data: {
+    motivo: string
+    tipoReembolso: string
+    montoReembolsado: number
+  }
+) {
+  const supabase = await createClient()
+
+  // Obtener datos del pasajero
+  const { data: pasajero, error: errorPasajero } = await supabase
+    .from('pasajeros')
+    .select('nombre, apellido, nombre_pasajero, monto_pagado, monto_total, grupo_id, es_titular')
+    .eq('id', pasajeroId)
+    .single()
+
+  if (errorPasajero) {
+    return { error: errorPasajero.message, cancelacionId: null }
+  }
+
+  // Si el pasajero es titular de un grupo, cancelar a todos los miembros
+  if (pasajero.es_titular && pasajero.grupo_id) {
+    const { data: miembros, error: errorMiembros } = await supabase
+      .from('pasajeros')
+      .select('id, nombre, apellido, nombre_pasajero, monto_pagado, monto_total')
+      .eq('grupo_id', pasajero.grupo_id)
+
+    if (errorMiembros) {
+      return { error: errorMiembros.message, cancelacionId: null }
+    }
+
+    let cancelacionId = null
+
+    // Insertar cancelación para cada miembro
+    for (const miembro of miembros) {
+      const { data: cancelacion, error: errorCancelacion } = await supabase
+        .from('cancelaciones')
+        .insert({
+          pasajero_id: miembro.id,
+          viaje_id: viajeId,
+          nombre_pasajero: miembro.nombre_pasajero || `${miembro.nombre || ''} ${miembro.apellido || ''}`.trim(),
+          monto_total: miembro.monto_total || 0,
+          monto_pagado: miembro.monto_pagado || 0,
+          tipo_reembolso: data.tipoReembolso,
+          monto_reembolsado: data.montoReembolsado,
+          motivo: data.motivo,
+          fecha_cancelacion: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      if (errorCancelacion) {
+        return { error: errorCancelacion.message, cancelacionId: null }
+      }
+
+      if (!cancelacionId) cancelacionId = cancelacion.id
+
+      // Actualizar cada miembro
+      await supabase
+        .from('pasajeros')
+        .update({
+          estado: 'cancelado',
+          motivo_cancelacion: data.motivo,
+          tipo_reembolso: data.tipoReembolso,
+          monto_reembolsado: data.montoReembolsado,
+          fecha_cancelacion: new Date().toISOString(),
+        })
+        .eq('id', miembro.id)
+    }
+
+    revalidatePath(`/viaje/${viajeId}`)
+    return { error: null, cancelacionId }
+  }
+
+  // Cancelación individual
+  const { data: cancelacion, error: errorCancelacion } = await supabase
+    .from('cancelaciones')
+    .insert({
+      pasajero_id: pasajeroId,
+      viaje_id: viajeId,
+      nombre_pasajero: pasajero.nombre_pasajero || `${pasajero.nombre || ''} ${pasajero.apellido || ''}`.trim(),
+      monto_total: pasajero.monto_total || 0,
+      monto_pagado: pasajero.monto_pagado || 0,
+      tipo_reembolso: data.tipoReembolso,
+      monto_reembolsado: data.montoReembolsado,
+      motivo: data.motivo,
+      fecha_cancelacion: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (errorCancelacion) {
+    return { error: errorCancelacion.message, cancelacionId: null }
+  }
+
+  // Actualizar estado del pasajero
+  const { error: errorUpdate } = await supabase
+    .from('pasajeros')
+    .update({
+      estado: 'cancelado',
+      motivo_cancelacion: data.motivo,
+      tipo_reembolso: data.tipoReembolso,
+      monto_reembolsado: data.montoReembolsado,
+      fecha_cancelacion: new Date().toISOString(),
+    })
+    .eq('id', pasajeroId)
+
+  if (errorUpdate) {
+    return { error: errorUpdate.message, cancelacionId: null }
+  }
+
+  revalidatePath(`/viaje/${viajeId}`)
+  return { error: null, cancelacionId: cancelacion.id }
+}
+
+// ============================================
+// FUNCIONES AUXILIARES
+// ============================================
+
 export async function obtenerMiembrosGrupo(grupoId: string) {
   const supabase = await createClient()
   
   const { data: miembros, error } = await supabase
     .from('pasajeros')
-    .select('id, nombre_pasajero, monto_pagado, monto_total, estado_pago')
+    .select('id, nombre, apellido, nombre_pasajero, monto_pagado, monto_total, estado_pago')
     .eq('grupo_id', grupoId)
 
   if (error) {
@@ -198,13 +344,12 @@ export async function obtenerMiembrosGrupo(grupoId: string) {
   return { error: null, miembros }
 }
 
-// Función para obtener el resumen de pagos de un viaje
 export async function obtenerResumenPagos(viajeId: string) {
   const supabase = await createClient()
 
   const { data: pasajeros, error } = await supabase
     .from('pasajeros')
-    .select('id, nombre_pasajero, monto_pagado, monto_total, estado_pago, grupo_id, es_titular')
+    .select('id, nombre, apellido, nombre_pasajero, monto_pagado, monto_total, estado_pago, grupo_id, es_titular')
     .eq('viaje_id', viajeId)
 
   if (error) {
@@ -215,7 +360,6 @@ export async function obtenerResumenPagos(viajeId: string) {
     return { error: null, resumen: { grupos: [], individuales: [] } }
   }
 
-  // Agrupar por grupo familiar
   const gruposMap = new Map<string, GrupoResumen>()
   const individuales: PasajeroResumen[] = []
 
@@ -251,13 +395,12 @@ export async function obtenerResumenPagos(viajeId: string) {
   }
 }
 
-// Función para obtener los pagos de un grupo (para recibo grupal)
 export async function obtenerPagosGrupo(grupoId: string, viajeId: string) {
   const supabase = await createClient()
   
   const { data: pagos, error } = await supabase
     .from('pagos')
-    .select('*, pasajeros(nombre_pasajero, monto_total)')
+    .select('*, pasajeros(nombre, apellido, nombre_pasajero, monto_total)')
     .eq('grupo_id', grupoId)
     .eq('viaje_id', viajeId)
 
@@ -266,4 +409,36 @@ export async function obtenerPagosGrupo(grupoId: string, viajeId: string) {
   }
 
   return { error: null, pagos }
+}
+
+export async function obtenerDetallePago(pagoId: string) {
+  const supabase = await createClient()
+  
+  const { data: pago, error } = await supabase
+    .from('pagos')
+    .select('*, pasajeros(nombre, apellido, nombre_pasajero, numero_documento, monto_total, monto_pagado, viaje_id)')
+    .eq('id', pagoId)
+    .single()
+
+  if (error) {
+    return { error: error.message, pago: null }
+  }
+
+  return { error: null, pago }
+}
+
+export async function obtenerDetalleCancelacion(cancelacionId: string) {
+  const supabase = await createClient()
+  
+  const { data: cancelacion, error } = await supabase
+    .from('cancelaciones')
+    .select('*, pasajeros(nombre, apellido, nombre_pasajero, numero_documento), viajes(destino, fecha_inicio, fecha_fin)')
+    .eq('id', cancelacionId)
+    .single()
+
+  if (error) {
+    return { error: error.message, cancelacion: null }
+  }
+
+  return { error: null, cancelacion }
 }
