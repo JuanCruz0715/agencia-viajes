@@ -20,6 +20,7 @@ type Pasajero = {
   telefono_pasajero?: string | null
   fecha_nacimiento?: string | null
   genero_pasajero?: string | null
+  nacionalidad?: string | null
   contacto_emergencia_nombre?: string | null
   contacto_emergencia_telefono?: string | null
   contacto_emergencia_parentesco?: string | null
@@ -36,9 +37,12 @@ type AcompananteData = {
   id: string
   nombre: string
   apellido: string
+  tipo_documento: string
   numero_documento: string
+  genero_pasajero?: string
   parentesco_con_titular?: string
   fecha_nacimiento?: string
+  nacionalidad?: string
   enfermedad?: string
   alergia?: string
   dieta_especial?: string
@@ -55,6 +59,7 @@ type EdicionData = {
     telefono_pasajero?: string
     fecha_nacimiento?: string
     genero_pasajero?: string
+    nacionalidad?: string
     contacto_emergencia_nombre?: string
     contacto_emergencia_telefono?: string
     contacto_emergencia_parentesco?: string
@@ -96,6 +101,7 @@ export default function ModalEditarPasajero({
     telefono_pasajero: titular.telefono_pasajero || '',
     fecha_nacimiento: titular.fecha_nacimiento || '',
     genero_pasajero: titular.genero_pasajero || '',
+    nacionalidad: titular.nacionalidad || '',
     contacto_emergencia_nombre: titular.contacto_emergencia_nombre || '',
     contacto_emergencia_telefono: titular.contacto_emergencia_telefono || '',
     contacto_emergencia_parentesco: titular.contacto_emergencia_parentesco || '',
@@ -111,9 +117,12 @@ export default function ModalEditarPasajero({
       id: m.id,
       nombre: m.nombre || '',
       apellido: m.apellido || '',
+      tipo_documento: m.tipo_documento || 'DNI',
       numero_documento: m.numero_documento || '',
+      genero_pasajero: m.genero_pasajero || '',
       parentesco_con_titular: m.parentesco_con_titular || '',
       fecha_nacimiento: m.fecha_nacimiento || '',
+      nacionalidad: m.nacionalidad || '',
       enfermedad: m.enfermedad || '',
       alergia: m.alergia || '',
       dieta_especial: m.dieta_especial || '',
@@ -198,6 +207,8 @@ export default function ModalEditarPasajero({
                   >
                     <option className="text-black">DNI</option>
                     <option className="text-black">Pasaporte</option>
+                    <option className="text-black">LE</option>
+                    <option className="text-black">LC</option>
                   </select>
                   <input
                     type="text"
@@ -267,6 +278,16 @@ export default function ModalEditarPasajero({
                   <option className="text-black">Otro</option>
                   <option className="text-black">Prefiero no decir</option>
                 </select>
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 block mb-1">Nacionalidad</label>
+                <input
+                  type="text"
+                  value={formData.nacionalidad}
+                  onChange={(e) => setFormData({ ...formData, nacionalidad: e.target.value })}
+                  className="w-full border rounded-lg p-2 text-sm text-black bg-white placeholder-gray-400"
+                  placeholder="Argentina, Uruguaya, etc."
+                />
               </div>
               {esGrupo && (
                 <div>
@@ -394,13 +415,39 @@ export default function ModalEditarPasajero({
                     </div>
                     <div>
                       <label className="text-sm text-gray-600 block mb-1">Documento *</label>
-                      <input
-                        type="text"
-                        value={acompanante.numero_documento}
-                        onChange={(e) => handleAcompananteChange(index, 'numero_documento', e.target.value)}
-                        className="w-full border rounded-lg p-2 text-sm text-black bg-white placeholder-gray-400"
-                        required
-                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={acompanante.tipo_documento || 'DNI'}
+                          onChange={(e) => handleAcompananteChange(index, 'tipo_documento', e.target.value)}
+                          className="border rounded-lg p-2 text-sm w-24 text-black bg-white"
+                        >
+                          <option className="text-black">DNI</option>
+                          <option className="text-black">Pasaporte</option>
+                          <option className="text-black">LE</option>
+                          <option className="text-black">LC</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={acompanante.numero_documento}
+                          onChange={(e) => handleAcompananteChange(index, 'numero_documento', e.target.value)}
+                          className="flex-1 border rounded-lg p-2 text-sm text-black bg-white placeholder-gray-400"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-600 block mb-1">Género</label>
+                      <select
+                        value={acompanante.genero_pasajero || ''}
+                        onChange={(e) => handleAcompananteChange(index, 'genero_pasajero', e.target.value)}
+                        className="w-full border rounded-lg p-2 text-sm text-black bg-white"
+                      >
+                        <option value="" className="text-black">Seleccionar</option>
+                        <option className="text-black">Femenino</option>
+                        <option className="text-black">Masculino</option>
+                        <option className="text-black">Otro</option>
+                        <option className="text-black">Prefiero no decir</option>
+                      </select>
                     </div>
                     <div>
                       <label className="text-sm text-gray-600 block mb-1">Fecha nacimiento</label>
@@ -419,6 +466,16 @@ export default function ModalEditarPasajero({
                         onChange={(e) => handleAcompananteChange(index, 'parentesco_con_titular', e.target.value)}
                         className="w-full border rounded-lg p-2 text-sm text-black bg-white placeholder-gray-400"
                         placeholder="Ej: Hijo/a, Hermano, etc."
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-600 block mb-1">Nacionalidad</label>
+                      <input
+                        type="text"
+                        value={acompanante.nacionalidad || ''}
+                        onChange={(e) => handleAcompananteChange(index, 'nacionalidad', e.target.value)}
+                        className="w-full border rounded-lg p-2 text-sm text-black bg-white placeholder-gray-400"
+                        placeholder="Argentina, Uruguaya, etc."
                       />
                     </div>
                     <div>

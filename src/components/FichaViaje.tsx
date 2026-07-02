@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { aprobarPasajero, aprobarGrupo, registrarPago, cancelarPasajero } from '@/app/viaje/[id]/actions'
 import ModalPago from '@/components/ModalPago'
 import ModalDetallePasajero from '@/components/ModalDetallePasajero'
@@ -17,7 +18,7 @@ const SN_CELESTE = '#2D9CB8'
 const SN_AMARILLO = '#F2B632'
 const BG_PAGINA = '#0B1620'
 const BG_CARD = '#15212C'
-const BORDE_CARD = '#22303C'
+const BORDE = '#1E2D3D'
 const TEXTO_MUTED = '#9FB3C2'
 
 type Pasajero = {
@@ -191,6 +192,8 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     setAprobando('grupo')
 
     const supabase = createClient()
+    
+    // Obtener el grupo_id del primer miembro
     const { data: primerMiembro } = await supabase
       .from('pasajeros')
       .select('grupo_id')
@@ -198,23 +201,53 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       .single()
 
     const grupoId = primerMiembro?.grupo_id
-    const idsRecibos: string[] = []
 
-    for (const id of miembrosIds) {
-      const resultado = await registrarPago(
-        id,
-        monto,
-        metodo,
-        viaje.id,
-        true,
-        grupoId || undefined,
-        tipoTarjeta,
-        cuotas,
-        recargo
-      )
+    if (!grupoId) {
+      alert('Error: No se encontró el grupo')
+      setAprobando(null)
+      return
+    }
 
-      if (resultado.pagoIds && resultado.pagoIds.length > 0) {
-        idsRecibos.push(...resultado.pagoIds)
+    // Obtener el titular del grupo
+    const { data: titular, error: errorTitular } = await supabase
+      .from('pasajeros')
+      .select('id')
+      .eq('grupo_id', grupoId)
+      .eq('es_titular', true)
+      .single()
+
+    if (errorTitular || !titular) {
+      alert('Error: No se encontró el titular del grupo')
+      setAprobando(null)
+      return
+    }
+
+    // Registrar el pago SOLO en el TITULAR
+    const resultado = await registrarPago(
+      titular.id,
+      monto,
+      metodo,
+      viaje.id,
+      true,
+      grupoId,
+      tipoTarjeta,
+      cuotas,
+      recargo
+    )
+
+    // Marcar a los acompañantes como pagados (sin sumarles monto)
+    const { data: acompanantes } = await supabase
+      .from('pasajeros')
+      .select('id')
+      .eq('grupo_id', grupoId)
+      .neq('es_titular', true)
+
+    if (acompanantes && acompanantes.length > 0) {
+      for (const acomp of acompanantes) {
+        await supabase
+          .from('pasajeros')
+          .update({ estado_pago: 'pagado' })
+          .eq('id', acomp.id)
       }
     }
 
@@ -224,8 +257,8 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     setMiembrosGrupo([])
     router.refresh()
 
-    if (idsRecibos.length > 0) {
-      window.open(`/recibo/${idsRecibos[0]}`, '_blank')
+    if (resultado.pagoId) {
+      window.open(`/recibo/${resultado.pagoId}`, '_blank')
     }
   }
 
@@ -436,444 +469,504 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const totalMenores18 = pasajeros.filter(p => p.es_menor_18).length
 
   return (
-    <main className="min-h-screen p-6 md:p-8" style={{ background: BG_PAGINA }}>
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link href="/home" className="text-sm font-medium" style={{ color: SN_CELESTE }}>&larr; Volver</Link>
-        <div className="flex gap-2 flex-wrap">
+    <main className="min-h-screen" style={{ background: BG_PAGINA }}>
+      {/* NAVBAR */}
+      <nav className="sticky top-0 z-10 px-6 py-3 flex items-center justify-between" style={{ background: SN_AZUL, boxShadow: '0 2px 12px rgba(0,0,0,0.4)' }}>
+        <div className="flex items-center gap-3">
+          <div className="relative w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: SN_CELESTE }}>
+            <Image
+              src="/logo-sn.png"
+              alt="SN Viajes"
+              fill
+              className="object-cover"
+              sizes="40px"
+            />
+          </div>
+          <div>
+            <p className="text-white font-semibold text-sm leading-none">SN Viajes <span style={{ color: SN_AMARILLO }}>&</span> Turismo</p>
+            <p className="text-xs mt-0.5" style={{ color: '#7AAEC4' }}>Detalle del viaje</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
           <BotonExportarPasajeros pasajeros={pasajeros} viajeNombre={viaje.destino} />
           <BotonExportarCNRT pasajeros={pasajeros} viajeNombre={viaje.destino} />
           <Link
             href={`/viaje/${viaje.id}/editar`}
-            className="text-sm rounded-lg px-3 py-1 border-none font-medium"
-            style={{ background: SN_AMARILLO, color: SN_AZUL }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
+            style={{ background: SN_AMARILLO, color: SN_AZUL, boxShadow: '0 2px 8px rgba(242, 182, 50, 0.3)' }}
           >
-            Editar viaje
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Editar
           </Link>
           <button
-            onClick={() => setMostrarConfirmacionEliminar(true)}
-            className="text-sm border-none rounded-lg px-3 py-1 bg-red-600 text-white hover:bg-red-700"
-          >
-            Eliminar
-          </button>
+  onClick={() => setMostrarConfirmacionEliminar(true)}
+  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
+  style={{ background: '#DC2626', color: 'white', boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)' }}
+>
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+  Eliminar
+</button>  {/* ✅ CORRECTO: cierre con </button> */}
+<Link
+  href="/home"
+  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all hover:opacity-80"
+  style={{ background: 'rgba(255,255,255,0.08)', color: '#9FC8DC', border: '1px solid rgba(255,255,255,0.06)' }}
+>
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
+  Volver
+</Link>
         </div>
-      </div>
+      </nav>
 
-      <h1 className="text-2xl font-semibold mt-2" style={{ color: 'white' }}>{viaje.destino}</h1>
-      <p style={{ color: TEXTO_MUTED }}>{viaje.fecha_inicio} - {viaje.fecha_fin}</p>
-      <p className="mt-2" style={{ color: TEXTO_MUTED }}>{confirmados.length}/{viaje.cupo_total} pasajeros confirmados</p>
-
-      <div className="grid grid-cols-3 gap-4 mt-4 p-4 rounded-lg" style={{ background: BG_CARD }}>
-        <div>
-          <p className="text-sm" style={{ color: TEXTO_MUTED }}>Total pasajeros</p>
-          <p className="text-lg font-semibold" style={{ color: 'white' }}>{pasajeros.length}</p>
-        </div>
-        <div>
-          <p className="text-sm" style={{ color: TEXTO_MUTED }}>Menores de 3 (sin butaca)</p>
-          <p className="text-lg font-semibold" style={{ color: SN_CELESTE }}>{totalMenores3}</p>
-        </div>
-        <div>
-          <p className="text-sm" style={{ color: TEXTO_MUTED }}>Menores de 18</p>
-          <p className="text-lg font-semibold" style={{ color: SN_AMARILLO }}>{totalMenores18}</p>
-        </div>
-      </div>
-
-      <div className="flex gap-6 mt-6 mb-6" style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-        <button
-          onClick={() => setTab('pasajeros')}
-          className="pb-2 font-medium"
-          style={tab === 'pasajeros' ? { borderBottom: `2px solid ${SN_CELESTE}`, color: 'white' } : { color: TEXTO_MUTED, borderBottom: '2px solid transparent' }}
-        >
-          Pasajeros
-        </button>
-        <button
-          onClick={() => setTab('ruta')}
-          className="pb-2 font-medium"
-          style={tab === 'ruta' ? { borderBottom: `2px solid ${SN_CELESTE}`, color: 'white' } : { color: TEXTO_MUTED, borderBottom: '2px solid transparent' }}
-        >
-          Hoja de ruta
-        </button>
-        <button
-          onClick={() => setTab('pagos')}
-          className="pb-2 font-medium"
-          style={tab === 'pagos' ? { borderBottom: `2px solid ${SN_CELESTE}`, color: 'white' } : { color: TEXTO_MUTED, borderBottom: '2px solid transparent' }}
-        >
-          Pagos
-        </button>
-      </div>
-
-      {tab === 'pasajeros' && (
-        <div>
-          <h2 className="font-medium mb-2" style={{ color: SN_CELESTE }}>Pendientes de revisión ({pendientes.length})</h2>
-          <div className="rounded-lg mb-6" style={{ background: BG_CARD, border: `1px solid ${BORDE_CARD}` }}>
-            {pendientes.length === 0 && <p className="p-4 text-sm" style={{ color: TEXTO_MUTED }}>No hay pasajeros pendientes.</p>}
-
-            {Object.entries(gruposPendientes).map(([grupoId, miembros]) => {
-              const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
-              const resto = miembros.filter((m) => m.id !== titular.id)
-              const abierto = expandido[grupoId]
-              return (
-                <div key={grupoId} style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-                  <div className="flex items-center justify-between p-3">
-                    <button
-                      onClick={() => toggleGrupo(grupoId)}
-                      className="text-left flex-1"
-                    >
-                      <p className="text-sm" style={{ color: 'white' }}>
-                        {titular.nombre} {titular.apellido}
-                        {resto.length > 0 && <span style={{ color: TEXTO_MUTED }}> +{resto.length}</span>}
-                      </p>
-                      <p className="text-xs" style={{ color: TEXTO_MUTED }}>
-                        DNI {titular.numero_documento} · {miembros.length} integrante{miembros.length > 1 ? 's' : ''}
-                      </p>
-                    </button>
-                    <button
-                      onClick={() => abrirDetalleGrupo(grupoId, miembros)}
-                      className="text-sm rounded px-3 py-1 hover:opacity-80"
-                      style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
-                    >
-                      Ver detalle
-                    </button>
-                  </div>
-                  {abierto && resto.length > 0 && (
-                    <div className="pl-6 pb-2">
-                      {resto.map((m) => (
-                        <p key={m.id} className="text-xs py-1" style={{ color: TEXTO_MUTED }}>
-                          {m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-
-            {individualesPendientes.map((p) => (
-              <div key={p.id} className="flex items-center justify-between p-3" style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-                <div>
-                  <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
-                  <p className="text-xs" style={{ color: TEXTO_MUTED }}>DNI {p.numero_documento}</p>
-                </div>
-                <button
-                  onClick={() => abrirDetalleIndividual(p)}
-                  className="text-sm rounded px-3 py-1 hover:opacity-80"
-                  style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
-                >
-                  Ver detalle
-                </button>
-              </div>
-            ))}
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        {/* Header del viaje */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: 'white' }}>{viaje.destino}</h1>
+            <p className="text-sm" style={{ color: TEXTO_MUTED }}>
+              📅 {viaje.fecha_inicio} → {viaje.fecha_fin}
+            </p>
+            <p className="text-sm mt-1" style={{ color: TEXTO_MUTED }}>
+              👥 {confirmados.length}/{viaje.cupo_total} pasajeros confirmados
+            </p>
           </div>
+          <div className="flex gap-3">
+            <div className="rounded-xl px-4 py-2 text-center" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+              <p className="text-xs" style={{ color: TEXTO_MUTED }}>Confirmados</p>
+              <p className="text-xl font-bold" style={{ color: 'white' }}>{confirmados.length}</p>
+            </div>
+            <div className="rounded-xl px-4 py-2 text-center" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+              <p className="text-xs" style={{ color: TEXTO_MUTED }}>Pendientes</p>
+              <p className="text-xl font-bold" style={{ color: SN_AMARILLO }}>{pendientes.length}</p>
+            </div>
+            <div className="rounded-xl px-4 py-2 text-center" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+              <p className="text-xs" style={{ color: TEXTO_MUTED }}>Cupo</p>
+              <p className="text-xl font-bold" style={{ color: SN_CELESTE }}>{viaje.cupo_total}</p>
+            </div>
+          </div>
+        </div>
 
-          <h2 className="font-medium mb-2" style={{ color: SN_CELESTE }}>Confirmados ({confirmados.length})</h2>
-          <div className="rounded-lg" style={{ background: BG_CARD, border: `1px solid ${BORDE_CARD}` }}>
-            {confirmados.length === 0 && <p className="p-4 text-sm" style={{ color: TEXTO_MUTED }}>Todavía no hay pasajeros confirmados.</p>}
+        {/* Stats menores */}
+        <div className="grid grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+          <div>
+            <p className="text-xs" style={{ color: TEXTO_MUTED }}>Total pasajeros</p>
+            <p className="text-lg font-semibold" style={{ color: 'white' }}>{pasajeros.length}</p>
+          </div>
+          <div>
+            <p className="text-xs" style={{ color: TEXTO_MUTED }}>👶 Menores de 3 (sin butaca)</p>
+            <p className="text-lg font-semibold" style={{ color: SN_CELESTE }}>{totalMenores3}</p>
+          </div>
+          <div>
+            <p className="text-xs" style={{ color: TEXTO_MUTED }}>🧒 Menores de 18</p>
+            <p className="text-lg font-semibold" style={{ color: SN_AMARILLO }}>{totalMenores18}</p>
+          </div>
+        </div>
 
-            {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
-              const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
-              const resto = miembros.filter((m) => m.id !== titular.id)
-              const abierto = expandido[grupoId]
-              const pagaron = miembros.filter((m) => m.estado_pago === 'pagado').length
-              return (
-                <div key={grupoId} style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-                  <div className="flex items-center justify-between p-3">
-                    <button
-                      onClick={() => toggleGrupo(grupoId)}
-                      className="text-left flex-1"
-                    >
-                      <p className="text-sm" style={{ color: 'white' }}>
-                        {titular.nombre} {titular.apellido}
-                        {resto.length > 0 && <span style={{ color: TEXTO_MUTED }}> +{resto.length}</span>}
-                      </p>
-                    </button>
-                    <div className="flex gap-2">
-                      <span className="text-xs px-2 py-1 rounded" style={{ background: '#FAEEDA', color: '#854F0B' }}>
-                        {pagaron} de {miembros.length} pagaron
-                      </span>
+        {/* Tabs */}
+        <div className="flex gap-6 mb-6" style={{ borderBottom: `1px solid ${BORDE}` }}>
+          {['pasajeros', 'ruta', 'pagos'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t as typeof tab)}
+              className="pb-2 px-1 text-sm font-medium transition-all"
+              style={
+                tab === t 
+                  ? { borderBottom: `2px solid ${SN_CELESTE}`, color: 'white' } 
+                  : { color: TEXTO_MUTED, borderBottom: '2px solid transparent' }
+              }
+            >
+              {t === 'pasajeros' ? '👥 Pasajeros' : t === 'ruta' ? '🗺️ Hoja de ruta' : '💳 Pagos'}
+            </button>
+          ))}
+        </div>
+
+        {/* CONTENIDO DE TABS */}
+        {tab === 'pasajeros' && (
+          <div>
+            <h2 className="font-medium mb-3 text-sm" style={{ color: SN_CELESTE }}>Pendientes de revisión ({pendientes.length})</h2>
+            <div className="rounded-xl mb-6 overflow-hidden" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+              {pendientes.length === 0 && (
+                <div className="p-6 text-center">
+                  <p className="text-sm" style={{ color: TEXTO_MUTED }}>✅ No hay pasajeros pendientes</p>
+                </div>
+              )}
+              {Object.entries(gruposPendientes).map(([grupoId, miembros]) => {
+                const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
+                const resto = miembros.filter((m) => m.id !== titular.id)
+                const abierto = expandido[grupoId]
+                return (
+                  <div key={grupoId} style={{ borderBottom: `1px solid ${BORDE}` }}>
+                    <div className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
+                      <button onClick={() => toggleGrupo(grupoId)} className="text-left flex-1">
+                        <p className="text-sm" style={{ color: 'white' }}>
+                          {titular.nombre} {titular.apellido}
+                          {resto.length > 0 && <span style={{ color: TEXTO_MUTED }}> +{resto.length}</span>}
+                        </p>
+                        <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                          DNI {titular.numero_documento} · {miembros.length} integrante{miembros.length > 1 ? 's' : ''}
+                        </p>
+                      </button>
                       <button
                         onClick={() => abrirDetalleGrupo(grupoId, miembros)}
-                        className="text-sm rounded px-3 py-1 hover:opacity-80"
+                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
+                        style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                      >
+                        Ver detalle
+                      </button>
+                    </div>
+                    {abierto && resto.length > 0 && (
+                      <div className="pl-6 pb-2 space-y-1">
+                        {resto.map((m) => (
+                          <p key={m.id} className="text-xs" style={{ color: TEXTO_MUTED }}>
+                            {m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {individualesPendientes.map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                  <div>
+                    <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
+                    <p className="text-xs" style={{ color: TEXTO_MUTED }}>DNI {p.numero_documento}</p>
+                  </div>
+                  <button
+                    onClick={() => abrirDetalleIndividual(p)}
+                    className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
+                    style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                  >
+                    Ver detalle
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <h2 className="font-medium mb-3 text-sm" style={{ color: SN_CELESTE }}>Confirmados ({confirmados.length})</h2>
+            <div className="rounded-xl overflow-hidden" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+              {confirmados.length === 0 && (
+                <div className="p-6 text-center">
+                  <p className="text-sm" style={{ color: TEXTO_MUTED }}>Todavía no hay pasajeros confirmados</p>
+                </div>
+              )}
+              {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
+                const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
+                const resto = miembros.filter((m) => m.id !== titular.id)
+                const abierto = expandido[grupoId]
+                const montoTotalGrupo = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
+                const montoPagadoGrupo = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
+                const grupoCompleto = (montoTotalGrupo - montoPagadoGrupo) <= 0
+                const pagaron = grupoCompleto ? miembros.length : miembros.filter(m => m.estado_pago === 'pagado').length
+                return (
+                  <div key={grupoId} style={{ borderBottom: `1px solid ${BORDE}` }}>
+                    <div className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
+                      <button onClick={() => toggleGrupo(grupoId)} className="text-left flex-1">
+                        <p className="text-sm" style={{ color: 'white' }}>
+                          {titular.nombre} {titular.apellido}
+                          {resto.length > 0 && <span style={{ color: TEXTO_MUTED }}> +{resto.length}</span>}
+                        </p>
+                      </button>
+                      <div className="flex gap-2">
+                        <span className="text-xs px-2 py-1 rounded-full" style={{ background: '#FAEEDA', color: '#854F0B' }}>
+                          {pagaron} de {miembros.length} pagaron
+                        </span>
+                        <button
+                          onClick={() => abrirDetalleGrupo(grupoId, miembros)}
+                          className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
+                          style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                        >
+                          Ver detalle
+                        </button>
+                      </div>
+                    </div>
+                    {abierto && resto.length > 0 && (
+                      <div className="pl-6 pb-2 space-y-1">
+                        {resto.map((m) => (
+                          <div key={m.id} className="flex items-center justify-between">
+                            <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                              {m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}
+                            </p>
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full"
+                              style={m.estado_pago === 'pagado' ? { background: 'rgba(59,109,17,0.2)', color: '#7EC55A' } : { background: '#FAEEDA', color: '#854F0B' }}
+                            >
+                              {m.estado_pago === 'pagado' ? 'Pagado' : 'Pendiente'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {individualesConfirmados.map((p) => {
+                const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
+                const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
+                return (
+                  <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                    <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
+                    <div className="flex gap-2">
+                      <span
+                        className="text-xs px-2 py-1 rounded-full"
+                        style={estaPagado ? { background: 'rgba(59,109,17,0.2)', color: '#7EC55A' } : { background: '#FAEEDA', color: '#854F0B' }}
+                      >
+                        {estaPagado ? '✅ Pagado' : 'Pendiente'}
+                      </span>
+                      <button
+                        onClick={() => abrirDetalleIndividual(p)}
+                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
                         style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
                       >
                         Ver detalle
                       </button>
                     </div>
                   </div>
-                  {abierto && resto.length > 0 && (
-                    <div className="pl-6 pb-2">
-                      {resto.map((m) => (
-                        <div key={m.id} className="flex items-center justify-between py-1">
-                          <p className="text-xs" style={{ color: TEXTO_MUTED }}>{m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}</p>
-                          <span
-                            className="text-xs px-2 py-0.5 rounded"
-                            style={m.estado_pago === 'pagado' ? { background: '#EAF3DE', color: '#3B6D11' } : { background: '#FAEEDA', color: '#854F0B' }}
-                          >
-                            {m.estado_pago === 'pagado' ? 'Pagado' : 'Pendiente'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {tab === 'ruta' && (
+          <div className="space-y-3">
+            {hojaRuta.length === 0 && (
+              <div className="text-center py-12 rounded-xl" style={{ background: BG_CARD, border: `1px dashed ${BORDE}` }}>
+                <p className="text-3xl mb-2">🗺️</p>
+                <p className="text-sm" style={{ color: TEXTO_MUTED }}>Todavía no se cargó la hoja de ruta</p>
+              </div>
+            )}
+            {hojaRuta.map((dia) => (
+              <div key={dia.id} className="rounded-xl p-4" style={{ background: BG_CARD, border: `1px solid ${BORDE}`, borderLeft: `3px solid ${SN_CELESTE}` }}>
+                <div className="flex items-center gap-3 mb-1">
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: 'rgba(45,156,184,0.15)', color: SN_CELESTE }}>
+                    Día {dia.dia_numero}
+                  </span>
+                  {dia.fecha && (
+                    <span className="text-xs" style={{ color: TEXTO_MUTED }}>{dia.fecha}</span>
+                  )}
+                  {dia.hora_inicio && (
+                    <span className="text-xs" style={{ color: TEXTO_MUTED }}>
+                      🕐 {dia.hora_inicio.slice(0, 5)} - {dia.hora_fin?.slice(0, 5)}
+                    </span>
                   )}
                 </div>
-              )
-            })}
-
-            {individualesConfirmados.map((p) => (
-              <div key={p.id} className="flex items-center justify-between p-3" style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-                <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
-                <div className="flex gap-2">
-                  <span
-                    className="text-xs px-2 py-1 rounded"
-                    style={p.estado_pago === 'pagado' ? { background: '#EAF3DE', color: '#3B6D11' } : { background: '#FAEEDA', color: '#854F0B' }}
-                  >
-                    {p.estado_pago === 'pagado' ? 'Pagado' : 'Pendiente'}
-                  </span>
-                  <button
-                    onClick={() => abrirDetalleIndividual(p)}
-                    className="text-sm rounded px-3 py-1 hover:opacity-80"
-                    style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
-                  >
-                    Ver detalle
-                  </button>
-                </div>
+                <p className="text-sm" style={{ color: 'white' }}>{dia.actividad}</p>
+                {dia.lugar && (
+                  <p className="text-xs" style={{ color: TEXTO_MUTED }}>📍 {dia.lugar}</p>
+                )}
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === 'ruta' && (
-        <div>
-          {hojaRuta.length === 0 && <p className="text-sm" style={{ color: TEXTO_MUTED }}>Todavía no se cargó la hoja de ruta.</p>}
-          {hojaRuta.map((dia) => (
-            <div key={dia.id} className="rounded-lg p-4 mb-3" style={{ background: BG_CARD, borderLeft: `3px solid ${SN_CELESTE}` }}>
-              <p className="text-sm mb-1" style={{ color: TEXTO_MUTED }}>
-                Día {dia.dia_numero}{dia.fecha ? ` · ${dia.fecha}` : ''}
-                {dia.hora_inicio ? ` · ${dia.hora_inicio.slice(0, 5)} a ${dia.hora_fin?.slice(0, 5)}` : ''}
-              </p>
-              <p style={{ color: 'white' }}>{dia.actividad}{dia.lugar ? ` — ${dia.lugar}` : ''}</p>
-            </div>
-          ))}
-        </div>
-      )}
+        {tab === 'pagos' && (
+          <div className="rounded-xl overflow-hidden" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+            {confirmados.length === 0 && (
+              <div className="p-6 text-center">
+                <p className="text-sm" style={{ color: TEXTO_MUTED }}>No hay pasajeros confirmados todavía</p>
+              </div>
+            )}
+            {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
+              const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
+              const montoTotalGrupo = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
+              const montoPagadoGrupo = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
+              const deudaRestante = montoTotalGrupo - montoPagadoGrupo
+              const todosPagados = deudaRestante <= 0
 
-      {tab === 'pagos' && (
-        <div className="rounded-lg" style={{ background: BG_CARD, border: `1px solid ${BORDE_CARD}` }}>
-          {confirmados.length === 0 && <p className="p-4 text-sm" style={{ color: TEXTO_MUTED }}>No hay pasajeros confirmados todavía.</p>}
-
-          {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
-            const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
-            const todosPagados = miembros.every((m) => m.estado_pago === 'pagado')
-            const montoTotalGrupo = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
-            const montoPagadoGrupo = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
-            const deudaRestante = montoTotalGrupo - montoPagadoGrupo
-
-            return (
-              <div key={grupoId} className="p-3" style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: 'white' }}>{titular.nombre} {titular.apellido} y grupo</p>
-                    <p className="text-xs" style={{ color: TEXTO_MUTED }}>
-                      {miembros.length} personas · ${montoPagadoGrupo.toLocaleString()} de ${montoTotalGrupo.toLocaleString()}
-                    </p>
-                    {deudaRestante > 0 && (
-                      <p className="text-xs" style={{ color: SN_AMARILLO }}>Falta: ${deudaRestante.toLocaleString()}</p>
+              return (
+                <div key={grupoId} className="p-4 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: 'white' }}>{titular.nombre} {titular.apellido} y grupo</p>
+                      <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                        {miembros.length} personas · ${montoPagadoGrupo.toLocaleString()} de ${montoTotalGrupo.toLocaleString()}
+                      </p>
+                      {deudaRestante > 0 && (
+                        <p className="text-xs" style={{ color: SN_AMARILLO }}>Falta: ${deudaRestante.toLocaleString()}</p>
+                      )}
+                    </div>
+                    {todosPagados ? (
+                      <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }}>
+                        ✅ Grupo pagado
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setPasajeroModal({
+                            id: grupoId,
+                            nombre: `${titular.nombre} ${titular.apellido} y grupo`
+                          })
+                          setPagoGrupal(true)
+                          setMiembrosGrupo(miembros.map(m => ({
+                            id: m.id,
+                            nombre: `${m.nombre || ''} ${m.apellido || ''}`.trim() || 'Sin nombre',
+                            montoTotal: m.monto_total || 0,
+                            montoPagado: m.monto_pagado || 0
+                          })))
+                        }}
+                        className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
+                        style={{ background: SN_AMARILLO, color: SN_AZUL }}
+                      >
+                        Registrar pago grupal
+                      </button>
                     )}
                   </div>
-                  {todosPagados ? (
-                    <span className="text-xs px-2 py-1 rounded" style={{ background: '#EAF3DE', color: '#3B6D11' }}>Grupo pagado</span>
+                </div>
+              )
+            })}
+            {individualesConfirmados.map((p) => {
+              const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
+              const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
+              return (
+                <div key={p.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
+                    <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                      ${p.monto_pagado?.toLocaleString() ?? 0} de ${p.monto_total?.toLocaleString() ?? 0}
+                    </p>
+                  </div>
+                  {estaPagado ? (
+                    <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }}>
+                      ✅ Pagado
+                    </span>
                   ) : (
                     <button
                       onClick={() => {
                         setPasajeroModal({
-                          id: grupoId,
-                          nombre: `${titular.nombre} ${titular.apellido} y grupo`
+                          id: p.id,
+                          nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre'
                         })
-                        setPagoGrupal(true)
-                        setMiembrosGrupo(miembros.map(m => ({
-                          id: m.id,
-                          nombre: `${m.nombre || ''} ${m.apellido || ''}`.trim() || 'Sin nombre',
-                          montoTotal: m.monto_total || 0,
-                          montoPagado: m.monto_pagado || 0
-                        })))
+                        setPagoGrupal(false)
+                        setMiembrosGrupo([])
                       }}
-                      className="text-sm rounded px-3 py-1 font-medium border-none"
+                      className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
                       style={{ background: SN_AMARILLO, color: SN_AZUL }}
                     >
-                      Registrar pago grupal
+                      Registrar pago
                     </button>
                   )}
                 </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* MODALES */}
+        {detalleModal && (
+          <ModalDetallePasajero
+            pasajero={detalleModal.pasajero}
+            esGrupo={detalleModal.esGrupo}
+            miembros={detalleModal.miembros}
+            estaAprobando={aprobando === detalleModal.pasajero.id || aprobando === detalleModal.miembros[0]?.grupo_id}
+            onAprobar={() => {
+              if (detalleModal.esGrupo) {
+                handleAprobarGrupo(detalleModal.miembros[0].grupo_id!)
+              } else {
+                handleAprobarPasajero(detalleModal.pasajero.id)
+              }
+            }}
+            onCancel={() => {
+              setAprobando(null)
+              setDetalleModal(null)
+            }}
+            onEliminar={() => {
+              setAprobando(null)
+              if (detalleModal.esGrupo) {
+                handleEliminarGrupo(detalleModal.miembros[0].grupo_id!)
+              } else {
+                handleEliminarPasajero(detalleModal.pasajero.id)
+              }
+            }}
+            onEditar={() => {
+              setAprobando(null)
+              abrirEdicion()
+            }}
+            onCancelar={() => {
+              setCancelando(detalleModal.pasajero)
+              setDetalleModal(null)
+            }}
+          />
+        )}
+
+        {editando && (
+          <ModalEditarPasajero
+            pasajero={editando.pasajero}
+            esGrupo={editando.esGrupo}
+            miembros={editando.miembros}
+            onGuardar={handleGuardarEdicion}
+            onCancel={() => setEditando(null)}
+            guardando={guardandoEdicion}
+          />
+        )}
+
+        {cancelando && (
+          <ModalCancelarPasajero
+            pasajero={cancelando}
+            onConfirm={handleCancelarPasajero}
+            onCancel={() => setCancelando(null)}
+            guardando={procesandoCancelacion}
+          />
+        )}
+
+        {pasajeroModal && (
+          <ModalPago
+            nombrePasajero={pasajeroModal.nombre}
+            esGrupo={pagoGrupal}
+            miembros={miembrosGrupo}
+            guardando={aprobando === pasajeroModal.id}
+            onCancel={() => {
+              setPasajeroModal(null)
+              setPagoGrupal(false)
+              setMiembrosGrupo([])
+              setAprobando(null)
+            }}
+            onConfirm={(monto, metodo, tipoTarjeta, cuotas, recargo) => {
+              if (pagoGrupal && miembrosGrupo.length > 0) {
+                handleRegistrarPagoGrupal(miembrosGrupo.map(m => m.id), monto, metodo, tipoTarjeta, cuotas, recargo)
+              } else {
+                handleRegistrarPago(pasajeroModal.id, monto, metodo, tipoTarjeta, cuotas, recargo)
+              }
+            }}
+          />
+        )}
+
+        {mostrarConfirmacionEliminar && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg p-6 max-w-sm w-full">
+              <h3 className="text-lg font-semibold mb-2">¿Eliminar viaje?</h3>
+              <p className="text-gray-600 mb-4">
+                ¿Estás seguro que deseas eliminar el viaje a <strong>{viaje.destino}</strong>?
+                <br />
+                <span className="text-sm text-red-600">Se eliminarán todos los pasajeros y la hoja de ruta asociados.</span>
+                <br />
+                <span className="text-sm font-semibold text-red-600">Esta acción no se puede deshacer.</span>
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setMostrarConfirmacionEliminar(false)}
+                  className="flex-1 border rounded-lg p-2 hover:bg-gray-50"
+                  disabled={eliminando}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEliminarViaje}
+                  className="flex-1 bg-red-600 text-white rounded-lg p-2 hover:bg-red-700 disabled:opacity-50"
+                  disabled={eliminando}
+                >
+                  {eliminando ? 'Eliminando...' : 'Eliminar'}
+                </button>
               </div>
-            )
-          })}
-
-          {individualesConfirmados.map((p) => {
-            const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
-            const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
-
-            return (
-              <div key={p.id} className="flex items-center justify-between gap-3 p-3" style={{ borderBottom: `1px solid ${BORDE_CARD}` }}>
-                <div>
-                  <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
-                  <p className="text-xs" style={{ color: TEXTO_MUTED }}>
-                    ${p.monto_pagado?.toLocaleString() ?? 0} de ${p.monto_total?.toLocaleString() ?? 0}
-                  </p>
-                </div>
-                {estaPagado ? (
-                  <span className="text-xs px-2 py-1 rounded" style={{ background: '#EAF3DE', color: '#3B6D11' }}>Pagado</span>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setPasajeroModal({
-                        id: p.id,
-                        nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre'
-                      })
-                      setPagoGrupal(false)
-                      setMiembrosGrupo([])
-                    }}
-                    className="text-sm rounded px-3 py-1 font-medium border-none"
-                    style={{ background: SN_AMARILLO, color: SN_AZUL }}
-                  >
-                    Registrar pago
-                  </button>
-                )}
-              </div>
-            )
-          })}
-
-          {pasajeroModal && (
-            <ModalPago
-              nombrePasajero={pasajeroModal.nombre}
-              esGrupo={pagoGrupal}
-              miembros={miembrosGrupo}
-              guardando={aprobando === pasajeroModal.id}
-              onCancel={() => {
-                setPasajeroModal(null)
-                setPagoGrupal(false)
-                setMiembrosGrupo([])
-                setAprobando(null)
-              }}
-              onConfirm={(monto, metodo, tipoTarjeta, cuotas, recargo) => {
-                if (pagoGrupal && miembrosGrupo.length > 0) {
-                  handleRegistrarPagoGrupal(
-                    miembrosGrupo.map(m => m.id), 
-                    monto, 
-                    metodo,
-                    tipoTarjeta,
-                    cuotas,
-                    recargo
-                  )
-                } else {
-                  handleRegistrarPago(
-                    pasajeroModal.id, 
-                    monto, 
-                    metodo,
-                    tipoTarjeta,
-                    cuotas,
-                    recargo
-                  )
-                }
-              }}
-            />
-          )}
-        </div>
-      )}
-
-      {detalleModal && (
-        <ModalDetallePasajero
-          pasajero={detalleModal.pasajero}
-          esGrupo={detalleModal.esGrupo}
-          miembros={detalleModal.miembros}
-          estaAprobando={
-            aprobando === detalleModal.pasajero.id ||
-            aprobando === detalleModal.miembros[0]?.grupo_id
-          }
-          onAprobar={() => {
-            if (detalleModal.esGrupo) {
-              handleAprobarGrupo(detalleModal.miembros[0].grupo_id!)
-            } else {
-              handleAprobarPasajero(detalleModal.pasajero.id)
-            }
-          }}
-          onCancel={() => {
-            setAprobando(null)
-            setDetalleModal(null)
-          }}
-          onEliminar={() => {
-            setAprobando(null)
-            if (detalleModal.esGrupo) {
-              handleEliminarGrupo(detalleModal.miembros[0].grupo_id!)
-            } else {
-              handleEliminarPasajero(detalleModal.pasajero.id)
-            }
-          }}
-          onEditar={() => {
-            setAprobando(null)
-            abrirEdicion()
-          }}
-          onCancelar={() => {
-            setCancelando(detalleModal.pasajero)
-            setDetalleModal(null)
-          }}
-        />
-      )}
-
-      {editando && (
-        <ModalEditarPasajero
-          pasajero={editando.pasajero}
-          esGrupo={editando.esGrupo}
-          miembros={editando.miembros}
-          onGuardar={handleGuardarEdicion}
-          onCancel={() => setEditando(null)}
-          guardando={guardandoEdicion}
-        />
-      )}
-
-      {cancelando && (
-        <ModalCancelarPasajero
-          pasajero={cancelando}
-          onConfirm={handleCancelarPasajero}
-          onCancel={() => setCancelando(null)}
-          guardando={procesandoCancelacion}
-        />
-      )}
-
-      {mostrarConfirmacionEliminar && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-sm w-full">
-            <h3 className="text-lg font-semibold mb-2">¿Eliminar viaje?</h3>
-            <p className="text-gray-600 mb-4">
-              ¿Estás seguro que deseas eliminar el viaje a <strong>{viaje.destino}</strong>?
-              <br />
-              <span className="text-sm text-red-600">
-                Se eliminarán todos los pasajeros y la hoja de ruta asociados.
-              </span>
-              <br />
-              <span className="text-sm font-semibold text-red-600">
-                Esta acción no se puede deshacer.
-              </span>
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setMostrarConfirmacionEliminar(false)}
-                className="flex-1 border rounded-lg p-2 hover:bg-gray-50"
-                disabled={eliminando}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleEliminarViaje}
-                className="flex-1 bg-red-600 text-white rounded-lg p-2 hover:bg-red-700 disabled:opacity-50"
-                disabled={eliminando}
-              >
-                {eliminando ? 'Eliminando...' : 'Eliminar'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     </main>
   )
 }

@@ -142,6 +142,10 @@ export default function ModalDetallePasajero({
               <p className="text-black">{titular.genero_pasajero || 'No especificado'}</p>
             </div>
             <div>
+              <p className="text-gray-500">Nacionalidad</p>
+              <p className="text-black">{titular.nacionalidad || 'No especificada'}</p>
+            </div>
+            <div>
               <p className="text-gray-500">Estado</p>
               <p className={`font-medium ${titular.estado_revision === 'aprobado' ? 'text-green-600' : 'text-amber-600'}`}>
                 {titular.estado_revision === 'aprobado' ? '✅ Confirmado' : '⏳ Pendiente'}
@@ -211,9 +215,18 @@ export default function ModalDetallePasajero({
                     <div className="flex-1">
                       <p className="font-medium text-sm text-black">{m.nombre} {m.apellido}</p>
                       <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-1">
-                        <p className="text-black">DNI: {m.numero_documento || 'No registrado'}</p>
-                        {m.parentesco_con_titular && <p className="text-black">Parentesco: {m.parentesco_con_titular}</p>}
-                        {m.fecha_nacimiento && <p className="text-black">Fecha nac.: {m.fecha_nacimiento}</p>}
+                        <p className="text-black">
+                          {m.tipo_documento || 'DNI'}: {m.numero_documento || 'No registrado'}
+                        </p>
+                        {m.genero_pasajero && (
+                          <p className="text-black">Género: {m.genero_pasajero}</p>
+                        )}
+                        {m.parentesco_con_titular && (
+                          <p className="text-black">Parentesco: {m.parentesco_con_titular}</p>
+                        )}
+                        {m.fecha_nacimiento && (
+                          <p className="text-black">Fecha nac.: {m.fecha_nacimiento}</p>
+                        )}
                         {m.edad !== null && m.edad !== undefined && (
                           <p className="text-black">Edad: {m.edad} años</p>
                         )}
@@ -223,9 +236,18 @@ export default function ModalDetallePasajero({
                         {m.es_menor_18 && !m.es_menor_3 && (
                           <p className="text-yellow-600">🧒 Menor de edad</p>
                         )}
-                        {m.enfermedad && <p className="text-black">Enfermedad: {m.enfermedad}</p>}
-                        {m.alergia && <p className="text-black">Alergia: {m.alergia}</p>}
-                        {m.dieta_especial && <p className="text-black">Dieta: {m.dieta_especial}</p>}
+                        {m.nacionalidad && (
+                          <p className="text-black">Nacionalidad: {m.nacionalidad}</p>
+                        )}
+                        {m.enfermedad && (
+                          <p className="text-black">Enfermedad: {m.enfermedad}</p>
+                        )}
+                        {m.alergia && (
+                          <p className="text-black">Alergia: {m.alergia}</p>
+                        )}
+                        {m.dieta_especial && (
+                          <p className="text-black">Dieta: {m.dieta_especial}</p>
+                        )}
                       </div>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded ${m.estado_revision === 'aprobado' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>

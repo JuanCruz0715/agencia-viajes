@@ -3,6 +3,10 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
 
+const SN_AZUL = '#1B3A5C'
+const SN_CELESTE = '#2D9CB8'
+const SN_AMARILLO = '#F2B632'
+
 type Pasajero = {
   id: string
   nombre: string | null
@@ -163,12 +167,17 @@ export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props
     <button
       onClick={exportarExcel}
       disabled={exportando}
-      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 text-sm"
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
+      style={{ 
+        background: '#0F7B3A', 
+        color: 'white',
+        boxShadow: '0 2px 8px rgba(15, 123, 58, 0.3)'
+      }}
     >
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
       </svg>
-      {exportando ? 'Exportando...' : '📊 Exportar Excel (Completo)'}
+      {exportando ? 'Exportando...' : 'Excel'}
     </button>
   )
 }

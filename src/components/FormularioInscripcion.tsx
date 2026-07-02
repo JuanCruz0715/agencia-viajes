@@ -9,7 +9,9 @@ type Viaje = { id: string; destino: string; fecha_inicio: string; fecha_fin: str
 type Acompanante = {
   nombre: string
   apellido: string
+  tipoDocumento: string
   documento: string
+  genero: string
   fechaNacimiento: string
   parentesco: string
   enfermedad: string
@@ -21,7 +23,9 @@ type Acompanante = {
 const acompananteVacio: Acompanante = {
   nombre: '',
   apellido: '',
+  tipoDocumento: 'DNI',
   documento: '',
+  genero: '',
   fechaNacimiento: '',
   parentesco: '',
   enfermedad: '',
@@ -127,12 +131,12 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
         nombre: a.nombre,
         apellido: a.apellido,
         nombre_pasajero: `${a.nombre} ${a.apellido}`,
+        tipo_documento: a.tipoDocumento || 'DNI',
         numero_documento: a.documento,
-        tipo_documento: 'DNI',
+        genero_pasajero: a.genero || null,
         fecha_nacimiento: a.fechaNacimiento || null,
         parentesco_con_titular: a.parentesco,
-        genero_pasajero: null,
-        nacionalidad: a.nacionalidad || nacionalidad || null,
+        nacionalidad: a.nacionalidad || null,
         contacto_emergencia_nombre: contactoNombre,
         contacto_emergencia_telefono: contactoTelefono,
         contacto_emergencia_parentesco: contactoParentesco,
@@ -421,14 +425,42 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                         className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    
+                    {/* Documento con tipo */}
+                    <div className="flex gap-2 mb-3">
+                      <select 
+                        value={a.tipoDocumento || 'DNI'} 
+                        onChange={(e) => actualizarAcompanante(i, 'tipoDocumento', e.target.value)} 
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      >
+                        <option className="text-gray-800">DNI</option>
+                        <option className="text-gray-800">Pasaporte</option>
+                        <option className="text-gray-800">LE</option>
+                        <option className="text-gray-800">LC</option>
+                      </select>
                       <input 
                         placeholder="DNI" 
                         value={a.documento} 
                         onChange={(e) => actualizarAcompanante(i, 'documento', e.target.value)} 
-                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                        className="flex-1 border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
                       />
-                      <div>
+                    </div>
+                    
+                    {/* Género */}
+                    <select 
+                      value={a.genero || ''} 
+                      onChange={(e) => actualizarAcompanante(i, 'genero', e.target.value)} 
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+                    >
+                      <option value="" className="text-gray-500">Género</option>
+                      <option className="text-gray-800">Femenino</option>
+                      <option className="text-gray-800">Masculino</option>
+                      <option className="text-gray-800">Otro</option>
+                      <option className="text-gray-800">Prefiero no decir</option>
+                    </select>
+                    
+                    <div className="flex gap-2 mb-3">
+                      <div className="flex-1">
                         <label className="text-xs text-gray-500 block mb-1">Fecha nacimiento</label>
                         <input 
                           type="date" 
@@ -437,27 +469,23 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                           className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
                         />
                       </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 block mb-1">Parentesco</label>
+                        <select 
+                          value={a.parentesco} 
+                          onChange={(e) => actualizarAcompanante(i, 'parentesco', e.target.value)} 
+                          className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                        >
+                          <option value="" className="text-gray-500">Parentesco</option>
+                          <option className="text-gray-800">Hijo/a</option>
+                          <option className="text-gray-800">Pareja</option>
+                          <option className="text-gray-800">Hermano/a</option>
+                          <option className="text-gray-800">Padre/Madre</option>
+                          <option className="text-gray-800">Otro</option>
+                        </select>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <select 
-                        value={a.parentesco} 
-                        onChange={(e) => actualizarAcompanante(i, 'parentesco', e.target.value)} 
-                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-                      >
-                        <option value="" className="text-gray-500">Parentesco</option>
-                        <option className="text-gray-800">Hijo/a</option>
-                        <option className="text-gray-800">Pareja</option>
-                        <option className="text-gray-800">Hermano/a</option>
-                        <option className="text-gray-800">Padre/Madre</option>
-                        <option className="text-gray-800">Otro</option>
-                      </select>
-                      <input 
-                        placeholder="🌍 Nacionalidad" 
-                        value={a.nacionalidad} 
-                        onChange={(e) => actualizarAcompanante(i, 'nacionalidad', e.target.value)} 
-                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-                      />
-                    </div>
+                    
                     {a.fechaNacimiento && edadAcomp !== null && (
                       <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
                         <p className="text-xs text-gray-600">
@@ -465,6 +493,14 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                         </p>
                       </div>
                     )}
+                    
+                    <input 
+                      placeholder="🌍 Nacionalidad" 
+                      value={a.nacionalidad} 
+                      onChange={(e) => actualizarAcompanante(i, 'nacionalidad', e.target.value)} 
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+                    />
+                    
                     <input 
                       placeholder="Enfermedad" 
                       value={a.enfermedad} 
