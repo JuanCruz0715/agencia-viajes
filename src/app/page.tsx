@@ -79,12 +79,11 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full rounded-xl px-4 py-3 text-sm transition-all outline-none"
+              className="w-full rounded-xl px-4 py-3 text-sm transition-all outline-none placeholder-gray-400"
               style={{
                 background: BG_PAGINA,
                 border: `1px solid ${BORDE}`,
                 color: 'white',
-                placeholderColor: TEXTO_MUTED,
               }}
               onFocus={(e) => e.target.style.borderColor = SN_CELESTE}
               onBlur={(e) => e.target.style.borderColor = BORDE}
@@ -101,12 +100,11 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full rounded-xl px-4 py-3 text-sm transition-all outline-none"
+              className="w-full rounded-xl px-4 py-3 text-sm transition-all outline-none placeholder-gray-400"
               style={{
                 background: BG_PAGINA,
                 border: `1px solid ${BORDE}`,
                 color: 'white',
-                placeholderColor: TEXTO_MUTED,
               }}
               onFocus={(e) => e.target.style.borderColor = SN_CELESTE}
               onBlur={(e) => e.target.style.borderColor = BORDE}
