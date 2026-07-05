@@ -48,7 +48,7 @@ export default function ReciboPage() {
     const cargarPago = async () => {
       const supabase = createClient()
       
-      // Primero obtener el pago
+      // Obtener el pago
       const { data: pagoData, error: pagoError } = await supabase
         .from('pagos')
         .select('*')
@@ -61,7 +61,7 @@ export default function ReciboPage() {
         return
       }
 
-      // Luego obtener el pasajero con sus montos totales
+      // Obtener el pasajero
       const { data: pasajeroData, error: pasajeroError } = await supabase
         .from('pasajeros')
         .select('id, nombre, apellido, nombre_pasajero, numero_documento, monto_total, monto_pagado, estado_pago')
@@ -81,7 +81,6 @@ export default function ReciboPage() {
         .eq('id', pagoData.viaje_id)
         .single()
 
-      // Combinar los datos
       setPago({
         ...pagoData,
         pasajeros: pasajeroData,
@@ -130,12 +129,10 @@ export default function ReciboPage() {
   const montoOriginal = pago.monto_original || pago.monto
   const montoFinal = pago.monto_final || pago.monto
 
-  // Calcular saldo pendiente REAL
   const montoTotalPasajero = pago.pasajeros?.monto_total || 0
   const montoPagadoPasajero = pago.pasajeros?.monto_pagado || 0
   const saldoPendiente = Math.max(0, montoTotalPasajero - montoPagadoPasajero)
 
-  // Mostrar detalle de pago
   let detallePago = ''
   if (esTarjeta) {
     if (tipoTarjeta === 'debito') {
@@ -158,7 +155,6 @@ export default function ReciboPage() {
     `${pago.pasajeros?.nombre || ''} ${pago.pasajeros?.apellido || ''}`.trim() || 
     'No disponible'
 
-  // Estado del pago del pasajero
   const estaPagado = pago.pasajeros?.estado_pago === 'pagado' || saldoPendiente <= 0
 
   return (
@@ -193,7 +189,9 @@ export default function ReciboPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold" style={{ color: SN_AZUL }}>SN Viajes y Turismo</h1>
-              <p className="text-xs" style={{ color: SN_CELESTE }}>Recibo de pago Nº {pago.numero_recibo}</p>
+              <p className="text-xs" style={{ color: SN_CELESTE }}>
+                Recibo de pago Nº {pago.numero_recibo || '---'}
+              </p>
             </div>
           </div>
           <div className="text-right">
