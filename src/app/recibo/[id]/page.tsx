@@ -7,6 +7,18 @@ import { createClient } from '@/lib/supabase/client'
 
 const SN_AZUL = '#1B3A5C'
 const SN_CELESTE = '#2D9CB8'
+const SN_AMARILLO = '#F2B632'
+
+// DATOS DE LA EMPRESA
+const EMPRESA = {
+  nombre: 'SN Viajes y Turismo',
+  legajo: '17096',
+  provincia: 'San Juan',
+  pais: 'Argentina',
+  direccion: 'Av. Libertador 123, San Juan',
+  telefono: '0264-1234567',
+  email: 'info@snviajes.com'
+}
 
 type Pago = {
   id: string
@@ -48,7 +60,6 @@ export default function ReciboPage() {
     const cargarPago = async () => {
       const supabase = createClient()
       
-      // Obtener el pago
       const { data: pagoData, error: pagoError } = await supabase
         .from('pagos')
         .select('*')
@@ -61,7 +72,6 @@ export default function ReciboPage() {
         return
       }
 
-      // Obtener el pasajero
       const { data: pasajeroData, error: pasajeroError } = await supabase
         .from('pasajeros')
         .select('id, nombre, apellido, nombre_pasajero, numero_documento, monto_total, monto_pagado, estado_pago')
@@ -74,7 +84,6 @@ export default function ReciboPage() {
         return
       }
 
-      // Obtener el viaje
       const { data: viajeData, error: viajeError } = await supabase
         .from('viajes')
         .select('destino, fecha_inicio, fecha_fin')
@@ -175,7 +184,7 @@ export default function ReciboPage() {
 
       {/* RECIBO */}
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8 print:shadow-none">
-        {/* Logo y título */}
+        {/* Logo y título - CON LEGAJO Y PROVINCIA */}
         <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: SN_CELESTE }}>
           <div className="flex items-center gap-3">
             <div className="relative w-16 h-16">
@@ -188,15 +197,15 @@ export default function ReciboPage() {
               />
             </div>
             <div>
-              <h1 className="text-xl font-bold" style={{ color: SN_AZUL }}>SN Viajes y Turismo</h1>
-              <p className="text-xs" style={{ color: SN_CELESTE }}>
-                Recibo de pago Nº {pago.numero_recibo || '---'}
-              </p>
+              <h1 className="text-xl font-bold" style={{ color: SN_AZUL }}>{EMPRESA.nombre}</h1>
+              <p className="text-xs" style={{ color: SN_CELESTE }}>Legajo: {EMPRESA.legajo}</p>
+              <p className="text-xs text-gray-500">{EMPRESA.provincia}, {EMPRESA.pais}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-500">Fecha</p>
-            <p className="text-sm font-medium" style={{ color: SN_AZUL }}>
+            <p className="text-xs text-gray-500">Recibo de pago</p>
+            <p className="text-sm font-bold" style={{ color: SN_AZUL }}>Nº {pago.numero_recibo || '---'}</p>
+            <p className="text-xs text-gray-500 mt-1">
               {new Date(pago.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
             </p>
           </div>
@@ -293,10 +302,12 @@ export default function ReciboPage() {
           )}
         </div>
 
-        {/* Pie de página */}
-        <div className="mt-6 text-center text-xs text-gray-400 border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
-          <p>Este recibo es un comprobante de pago válido.</p>
-          <p>SN Viajes y Turismo - Todos los derechos reservados.</p>
+        {/* DATOS DE LA EMPRESA - PIE DE PÁGINA */}
+        <div className="mt-6 text-center text-xs border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
+          <p className="text-gray-500">{EMPRESA.nombre} - Legajo {EMPRESA.legajo}</p>
+          <p className="text-gray-500">{EMPRESA.provincia}, {EMPRESA.pais}</p>
+          <p className="text-gray-400 mt-1">Este recibo es un comprobante de pago válido.</p>
+          <p className="text-gray-400">Todos los derechos reservados.</p>
         </div>
       </div>
     </div>

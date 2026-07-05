@@ -109,7 +109,6 @@ export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props
         'Género': p.genero_pasajero || '',
         'Nacionalidad': p.nacionalidad || '',
         'Parentesco': p.es_titular ? 'TITULAR' : (p.parentesco_con_titular || 'Acompañante'),
-        'Vendedor': p.vendedor || '',
         'Iniciales': p.iniciales_vendedor || '',
         'Contacto Emergencia': p.contacto_emergencia_nombre || '',
         'Tel. Emergencia': p.contacto_emergencia_telefono || '',

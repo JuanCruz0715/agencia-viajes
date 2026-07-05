@@ -672,7 +672,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                                 ? { background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }
                                 : { background: '#FAEEDA', color: '#854F0B' }}
                             >
-                              {m.estado_pago === 'pagado' ? 'Pagado' : '💰 Sin pago'}
+                              {m.estado_pago === 'pagado' ? 'Pagado' : '💰 Sin pago / Deuda'}
                             </span>
                           </div>
                         ))}
@@ -696,7 +696,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                           ? { background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }
                           : { background: '#FAEEDA', color: '#854F0B' }}
                       >
-                        {estaPagado ? '✅ Pagado' : '💰 Sin pago'}
+                        {estaPagado ? '✅ Pagado' : '💰 Sin pago / Deuda'}
                       </span>
                       <button
                         onClick={() => abrirDetalleIndividual(p)}
