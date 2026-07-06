@@ -21,17 +21,9 @@ type Acompanante = {
 }
 
 const acompananteVacio: Acompanante = {
-  nombre: '',
-  apellido: '',
-  tipoDocumento: 'DNI',
-  documento: '',
-  genero: '',
-  fechaNacimiento: '',
-  parentesco: '',
-  enfermedad: '',
-  alergia: '',
-  dieta: '',
-  nacionalidad: ''
+  nombre: '', apellido: '', tipoDocumento: 'DNI', documento: '',
+  genero: '', fechaNacimiento: '', parentesco: '', enfermedad: '',
+  alergia: '', dieta: '', nacionalidad: ''
 }
 
 function calcularEdad(fechaNacimiento: string) {
@@ -40,10 +32,43 @@ function calcularEdad(fechaNacimiento: string) {
   const nacimiento = new Date(fechaNacimiento)
   let edad = hoy.getFullYear() - nacimiento.getFullYear()
   const mes = hoy.getMonth() - nacimiento.getMonth()
-  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
-    edad--
-  }
+  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) edad--
   return edad
+}
+
+function soloLetras(valor: string) {
+  return /^[a-zA-ZáéíóúÁÉÍÓÚüÜñÑ\s'-]+$/.test(valor.trim())
+}
+
+function soloNumeros(valor: string) {
+  return /^\d+$/.test(valor.trim())
+}
+
+function validarEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+function validarDocumento(tipo: string, numero: string) {
+  if (!numero.trim()) return 'El documento es requerido'
+  if (!soloNumeros(numero.replace(/\./g, ''))) return 'Solo debe contener números'
+  const limpio = numero.replace(/\./g, '')
+  if (tipo === 'DNI') {
+    if (limpio.length < 7 || limpio.length > 8) return 'El DNI debe tener 7 u 8 dígitos'
+  }
+  return null
+}
+
+function validarTelefono(tel: string) {
+  const limpio = tel.replace(/[\s\-\(\)]/g, '')
+  if (!limpio) return 'El teléfono es requerido'
+  if (!/^\+?[\d]{8,15}$/.test(limpio)) return 'Ingresá un teléfono válido (mínimo 8 dígitos)'
+  return null
+}
+
+function claseInput(error?: string, touched?: boolean) {
+  if (!touched) return 'w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none'
+  if (error) return 'w-full border-2 border-red-400 rounded-xl p-3 bg-red-50 text-gray-800 placeholder-gray-400 focus:border-red-500 focus:ring-2 focus:ring-red-200 transition-all outline-none'
+  return 'w-full border-2 border-green-400 rounded-xl p-3 bg-green-50 text-gray-800 placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all outline-none'
 }
 
 export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
@@ -64,13 +89,36 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   const [alergia, setAlergia] = useState('')
   const [dieta, setDieta] = useState('')
   const [sugerencias, setSugerencias] = useState('')
-
   const [tieneGrupo, setTieneGrupo] = useState(false)
   const [acompanantes, setAcompanantes] = useState<Acompanante[]>([])
-
   const [enviando, setEnviando] = useState(false)
   const [enviado, setEnviado] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+
+  // Touched states para mostrar errores solo después de que el usuario tocó el campo
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+
+  function touch(campo: string) {
+    setTouched(prev => ({ ...prev, [campo]: true }))
+  }
+
+  // Errores en tiempo real
+  const errores = {
+    viaje: !viajeId ? 'Seleccioná un viaje' : null,
+    nombre: !nombre.trim() ? 'El nombre es requerido' : !soloLetras(nombre) ? 'Solo letras, sin números' : null,
+    apellido: !apellido.trim() ? 'El apellido es requerido' : !soloLetras(apellido) ? 'Solo letras, sin números' : null,
+    documento: validarDocumento(tipoDocumento, numeroDocumento),
+    email: !email.trim() ? 'El email es requerido' : !validarEmail(email) ? 'Ingresá un email válido (ej: juan@gmail.com)' : null,
+    telefono: validarTelefono(telefono),
+    fechaNacimiento: !fechaNacimiento ? 'La fecha de nacimiento es requerida' :
+      calcularEdad(fechaNacimiento)! < 0 ? 'La fecha no puede ser futura' :
+      calcularEdad(fechaNacimiento)! > 110 ? 'Revisá la fecha ingresada' : null,
+    contactoNombre: !contactoNombre.trim() ? 'El nombre del contacto es requerido' : !soloLetras(contactoNombre) ? 'Solo letras' : null,
+    contactoTelefono: validarTelefono(contactoTelefono),
+    contactoParentesco: !contactoParentesco.trim() ? 'El parentesco es requerido' : null,
+  }
+
+  const hayErrores = Object.values(errores).some(Boolean)
 
   function agregarAcompanante() {
     setAcompanantes([...acompanantes, { ...acompananteVacio }])
@@ -88,6 +136,31 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // Marcar todos los campos como tocados para mostrar todos los errores
+    const todosTouched: Record<string, boolean> = {}
+    Object.keys(errores).forEach(k => { todosTouched[k] = true })
+    setTouched(todosTouched)
+
+    if (hayErrores) {
+      setErrorMsg('Por favor corregí los errores antes de enviar.')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    // Validar acompañantes
+    for (let i = 0; i < acompanantes.length; i++) {
+      const a = acompanantes[i]
+      if (!a.nombre.trim() || !a.apellido.trim()) {
+        setErrorMsg(`El acompañante ${i + 1} debe tener nombre y apellido.`)
+        return
+      }
+      if (!a.documento.trim()) {
+        setErrorMsg(`El acompañante ${i + 1} debe tener documento.`)
+        return
+      }
+    }
+
     setErrorMsg('')
     setEnviando(true)
 
@@ -95,28 +168,28 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     const grupoId = acompanantes.length > 0 ? crypto.randomUUID() : null
     const viajeSeleccionado = viajes.find((v) => v.id === viajeId)
     const precioViaje = viajeSeleccionado?.precio ?? 0
-    
+
     const titularRow = {
       viaje_id: viajeId,
       grupo_id: grupoId,
       es_titular: true,
-      nombre: nombre,
-      apellido: apellido,
-      nombre_pasajero: `${nombre} ${apellido}`,
+      nombre: nombre.trim(),
+      apellido: apellido.trim(),
+      nombre_pasajero: `${nombre.trim()} ${apellido.trim()}`,
       tipo_documento: tipoDocumento,
-      numero_documento: numeroDocumento,
-      email_pasajero: email,
-      telefono_pasajero: telefono,
+      numero_documento: numeroDocumento.trim(),
+      email_pasajero: email.trim().toLowerCase(),
+      telefono_pasajero: telefono.trim(),
       fecha_nacimiento: fechaNacimiento || null,
       genero_pasajero: genero,
-      nacionalidad: nacionalidad || null,
-      contacto_emergencia_nombre: contactoNombre,
-      contacto_emergencia_telefono: contactoTelefono,
-      contacto_emergencia_parentesco: contactoParentesco,
-      enfermedad,
-      alergia,
-      dieta_especial: dieta,
-      sugerencias,
+      nacionalidad: nacionalidad.trim() || null,
+      contacto_emergencia_nombre: contactoNombre.trim(),
+      contacto_emergencia_telefono: contactoTelefono.trim(),
+      contacto_emergencia_parentesco: contactoParentesco.trim(),
+      enfermedad: enfermedad.trim(),
+      alergia: alergia.trim(),
+      dieta_especial: dieta.trim(),
+      sugerencias: sugerencias.trim(),
       estado_revision: 'pendiente',
       estado_pago: 'pendiente',
       monto_total: precioViaje,
@@ -128,21 +201,21 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
         viaje_id: viajeId,
         grupo_id: grupoId,
         es_titular: false,
-        nombre: a.nombre,
-        apellido: a.apellido,
-        nombre_pasajero: `${a.nombre} ${a.apellido}`,
+        nombre: a.nombre.trim(),
+        apellido: a.apellido.trim(),
+        nombre_pasajero: `${a.nombre.trim()} ${a.apellido.trim()}`,
         tipo_documento: a.tipoDocumento || 'DNI',
-        numero_documento: a.documento,
+        numero_documento: a.documento.trim(),
         genero_pasajero: a.genero || null,
         fecha_nacimiento: a.fechaNacimiento || null,
         parentesco_con_titular: a.parentesco,
-        nacionalidad: a.nacionalidad || null,
-        contacto_emergencia_nombre: contactoNombre,
-        contacto_emergencia_telefono: contactoTelefono,
-        contacto_emergencia_parentesco: contactoParentesco,
-        enfermedad: a.enfermedad,
-        alergia: a.alergia,
-        dieta_especial: a.dieta,
+        nacionalidad: a.nacionalidad.trim() || null,
+        contacto_emergencia_nombre: contactoNombre.trim(),
+        contacto_emergencia_telefono: contactoTelefono.trim(),
+        contacto_emergencia_parentesco: contactoParentesco.trim(),
+        enfermedad: a.enfermedad.trim(),
+        alergia: a.alergia.trim(),
+        dieta_especial: a.dieta.trim(),
         estado_revision: 'pendiente',
         estado_pago: 'pendiente',
         monto_total: precioViaje,
@@ -176,221 +249,255 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 py-8 px-4">
       <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl p-6 md:p-8">
-        {/* TITULO */}
         <h1 className="text-2xl font-bold text-center text-gray-800 mb-2">✈️ SN Viajes y Turismo</h1>
-        
-        {/* LOGO */}
         <div className="flex justify-center mb-4">
           <div className="relative w-56 h-24">
-            <Image
-              src="/logo-sn.png"
-              alt="SN Viajes y Turismo"
-              fill
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-              className="object-contain"
-              priority
-            />
+            <Image src="/logo-sn.png" alt="SN Viajes y Turismo" fill sizes="224px" className="object-contain" priority />
           </div>
         </div>
-
-        <p className="text-sm text-gray-500 text-center mb-6">Completá tus datos para confirmar tu lugar</p>
+        <p className="text-sm text-gray-500 text-center mb-2">Completá tus datos para confirmar tu lugar</p>
+        <p className="text-xs text-center text-red-500 mb-4">* Los campos marcados son obligatorios</p>
         <div className="w-20 h-1 bg-blue-500 mx-auto mb-6 rounded-full"></div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Viaje */}
+        {errorMsg && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl">
+            <p className="text-sm text-red-600 font-medium">⚠️ {errorMsg}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+
+          {/* VIAJE */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-1.5">
-              📍 Viaje
-            </label>
-            <select 
-              required 
-              value={viajeId} 
-              onChange={(e) => setViajeId(e.target.value)} 
-              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-white text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            <label className="text-sm font-semibold text-gray-700 block mb-1.5">📍 Viaje *</label>
+            <select
+              required
+              value={viajeId}
+              onChange={(e) => { setViajeId(e.target.value); touch('viaje') }}
+              onBlur={() => touch('viaje')}
+              className={`w-full border-2 rounded-xl p-3 text-gray-800 focus:ring-2 transition-all outline-none ${
+                !touched.viaje ? 'border-gray-200 bg-white' :
+                errores.viaje ? 'border-red-400 bg-red-50 focus:ring-red-200' :
+                'border-green-400 bg-green-50 focus:ring-green-200'
+              }`}
             >
-              <option value="" className="text-gray-500">Seleccioná un viaje</option>
+              <option value="">Seleccioná un viaje</option>
               {viajes.map((v) => (
-                <option key={v.id} value={v.id} className="text-gray-800">
+                <option key={v.id} value={v.id}>
                   {v.destino} · {v.fecha_inicio} a {v.fecha_fin} · ${v.precio?.toLocaleString('es-AR')}
                 </option>
               ))}
             </select>
+            {touched.viaje && errores.viaje && <p className="text-xs text-red-500 mt-1">⚠ {errores.viaje}</p>}
           </div>
 
-          {/* Datos personales */}
+          {/* DATOS PERSONALES */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">
-              👤 Tus datos
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <input 
-                required 
-                placeholder="Nombre" 
-                value={nombre} 
-                onChange={(e) => setNombre(e.target.value)} 
-                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-              />
-              <input 
-                required 
-                placeholder="Apellido" 
-                value={apellido} 
-                onChange={(e) => setApellido(e.target.value)} 
-                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            <label className="text-sm font-semibold text-gray-700 block mb-2">👤 Tus datos *</label>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <input
+                  required
+                  placeholder="Nombre *"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  onBlur={() => touch('nombre')}
+                  className={claseInput(errores.nombre || undefined, touched.nombre)}
+                />
+                {touched.nombre && errores.nombre && <p className="text-xs text-red-500 mt-1">⚠ {errores.nombre}</p>}
+              </div>
+              <div>
+                <input
+                  required
+                  placeholder="Apellido *"
+                  value={apellido}
+                  onChange={(e) => setApellido(e.target.value)}
+                  onBlur={() => touch('apellido')}
+                  className={claseInput(errores.apellido || undefined, touched.apellido)}
+                />
+                {touched.apellido && errores.apellido && <p className="text-xs text-red-500 mt-1">⚠ {errores.apellido}</p>}
+              </div>
+            </div>
+
+            {/* DOCUMENTO */}
+            <div className="grid grid-cols-3 gap-3 mb-1">
+              <select
+                value={tipoDocumento}
+                onChange={(e) => { setTipoDocumento(e.target.value); touch('documento') }}
+                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+              >
+                <option>DNI</option>
+                <option>Pasaporte</option>
+                <option>LE</option>
+                <option>LC</option>
+              </select>
+              <input
+                required
+                placeholder="Número *"
+                value={numeroDocumento}
+                onChange={(e) => setNumeroDocumento(e.target.value.replace(/\D/g, ''))}
+                onBlur={() => touch('documento')}
+                maxLength={8}
+                className={`col-span-2 ${claseInput(errores.documento || undefined, touched.documento)}`}
               />
             </div>
+            {touched.documento && errores.documento && <p className="text-xs text-red-500 mt-1">⚠ {errores.documento}</p>}
+            <p className="text-xs text-gray-400 mt-1">Solo números, sin puntos ni espacios</p>
           </div>
 
-          {/* Documento */}
-          <div className="grid grid-cols-3 gap-3">
-            <select 
-              value={tipoDocumento} 
-              onChange={(e) => setTipoDocumento(e.target.value)} 
-              className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-            >
-              <option className="text-gray-800">DNI</option>
-              <option className="text-gray-800">Pasaporte</option>
-              <option className="text-gray-800">LE</option>
-              <option className="text-gray-800">LC</option>
-            </select>
-            <input 
-              required 
-              placeholder="Número de documento" 
-              value={numeroDocumento} 
-              onChange={(e) => setNumeroDocumento(e.target.value)} 
-              className="col-span-2 border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-            />
-          </div>
-
-          {/* Email y Teléfono */}
-          <input 
-            required 
-            type="email" 
-            placeholder="📧 Email" 
-            value={email} 
-            onChange={(e) => setEmail(e.target.value)} 
-            className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-          />
-          <input 
-            required 
-            placeholder="📱 Teléfono" 
-            value={telefono} 
-            onChange={(e) => setTelefono(e.target.value)} 
-            className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-          />
-
-          {/* Fecha de nacimiento */}
+          {/* EMAIL */}
           <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1.5">
-              🎂 Fecha de nacimiento
-            </label>
-            <input 
-              type="date" 
-              value={fechaNacimiento} 
-              onChange={(e) => setFechaNacimiento(e.target.value)} 
-              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+            <input
+              required
+              type="email"
+              placeholder="📧 Email *"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => touch('email')}
+              className={claseInput(errores.email || undefined, touched.email)}
             />
-            {fechaNacimiento && edadTitular !== null && (
-              <div className="mt-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
+            {touched.email && errores.email && <p className="text-xs text-red-500 mt-1">⚠ {errores.email}</p>}
+          </div>
+
+          {/* TELÉFONO */}
+          <div>
+            <input
+              required
+              placeholder="📱 Teléfono * (ej: 2645551234)"
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value.replace(/[^\d\s\-\(\)\+]/g, ''))}
+              onBlur={() => touch('telefono')}
+              className={claseInput(errores.telefono || undefined, touched.telefono)}
+            />
+            {touched.telefono && errores.telefono && <p className="text-xs text-red-500 mt-1">⚠ {errores.telefono}</p>}
+            <p className="text-xs text-gray-400 mt-1">Sin guiones ni paréntesis, incluí el código de área</p>
+          </div>
+
+          {/* FECHA DE NACIMIENTO */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-1.5">🎂 Fecha de nacimiento *</label>
+            <input
+              type="date"
+              required
+              value={fechaNacimiento}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setFechaNacimiento(e.target.value)}
+              onBlur={() => touch('fechaNacimiento')}
+              className={claseInput(errores.fechaNacimiento || undefined, touched.fechaNacimiento)}
+            />
+            {touched.fechaNacimiento && errores.fechaNacimiento && <p className="text-xs text-red-500 mt-1">⚠ {errores.fechaNacimiento}</p>}
+            {fechaNacimiento && edadTitular !== null && !errores.fechaNacimiento && (
+              <div className="mt-2 p-2 bg-blue-50 rounded-xl border border-blue-100">
                 <p className="text-sm text-gray-700">
                   Edad: <span className="font-semibold text-blue-600">{edadTitular} años</span>
+                  {edadTitular < 3 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">👶 No ocupa butaca</span>}
+                  {edadTitular >= 3 && edadTitular < 18 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">🧒 Menor de edad</span>}
                 </p>
               </div>
             )}
           </div>
 
-          {/* Género y Nacionalidad */}
+          {/* GÉNERO Y NACIONALIDAD */}
           <div className="grid grid-cols-2 gap-3">
-            <select 
-              value={genero} 
-              onChange={(e) => setGenero(e.target.value)} 
+            <select
+              value={genero}
+              onChange={(e) => setGenero(e.target.value)}
               className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
             >
-              <option value="" className="text-gray-500">Género</option>
-              <option className="text-gray-800">Femenino</option>
-              <option className="text-gray-800">Masculino</option>
-              <option className="text-gray-800">Otro</option>
-              <option className="text-gray-800">Prefiero no decir</option>
+              <option value="">Género</option>
+              <option>Femenino</option>
+              <option>Masculino</option>
+              <option>Otro</option>
+              <option>Prefiero no decir</option>
             </select>
-            <input 
-              placeholder="🌍 Nacionalidad" 
-              value={nacionalidad} 
-              onChange={(e) => setNacionalidad(e.target.value)} 
+            <input
+              placeholder="🌍 Nacionalidad"
+              value={nacionalidad}
+              onChange={(e) => setNacionalidad(e.target.value)}
               className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
             />
           </div>
 
-          {/* Contacto de emergencia */}
+          {/* CONTACTO DE EMERGENCIA */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">
-              🆘 Contacto de emergencia
-            </label>
-            <input 
-              required 
-              placeholder="Nombre" 
-              value={contactoNombre} 
-              onChange={(e) => setContactoNombre(e.target.value)} 
-              className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+            <label className="text-sm font-semibold text-gray-700 block mb-2">🆘 Contacto de emergencia *</label>
+            <input
+              required
+              placeholder="Nombre y apellido *"
+              value={contactoNombre}
+              onChange={(e) => setContactoNombre(e.target.value)}
+              onBlur={() => touch('contactoNombre')}
+              className={`${claseInput(errores.contactoNombre || undefined, touched.contactoNombre)} mb-1`}
             />
-            <div className="grid grid-cols-2 gap-3">
-              <input 
-                required 
-                placeholder="Teléfono" 
-                value={contactoTelefono} 
-                onChange={(e) => setContactoTelefono(e.target.value)} 
-                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-              />
-              <input 
-                required 
-                placeholder="Parentesco" 
-                value={contactoParentesco} 
-                onChange={(e) => setContactoParentesco(e.target.value)} 
-                className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
-              />
+            {touched.contactoNombre && errores.contactoNombre && <p className="text-xs text-red-500 mb-2">⚠ {errores.contactoNombre}</p>}
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <div>
+                <input
+                  required
+                  placeholder="Teléfono *"
+                  value={contactoTelefono}
+                  onChange={(e) => setContactoTelefono(e.target.value.replace(/[^\d\s\-\(\)\+]/g, ''))}
+                  onBlur={() => touch('contactoTelefono')}
+                  className={claseInput(errores.contactoTelefono || undefined, touched.contactoTelefono)}
+                />
+                {touched.contactoTelefono && errores.contactoTelefono && <p className="text-xs text-red-500 mt-1">⚠ {errores.contactoTelefono}</p>}
+              </div>
+              <div>
+                <input
+                  required
+                  placeholder="Parentesco *"
+                  value={contactoParentesco}
+                  onChange={(e) => setContactoParentesco(e.target.value)}
+                  onBlur={() => touch('contactoParentesco')}
+                  className={claseInput(errores.contactoParentesco || undefined, touched.contactoParentesco)}
+                />
+                {touched.contactoParentesco && errores.contactoParentesco && <p className="text-xs text-red-500 mt-1">⚠ {errores.contactoParentesco}</p>}
+              </div>
             </div>
           </div>
 
-          {/* Información médica */}
+          {/* INFORMACIÓN MÉDICA */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 block mb-2">
-              🏥 Información médica
-            </label>
-            <input 
-              placeholder="Enfermedad" 
-              value={enfermedad} 
-              onChange={(e) => setEnfermedad(e.target.value)} 
+            <label className="text-sm font-semibold text-gray-700 block mb-2">🏥 Información médica <span className="text-gray-400 font-normal">(opcional)</span></label>
+            <input
+              placeholder="¿Alguna enfermedad? Si no, dejá en blanco"
+              value={enfermedad}
+              onChange={(e) => setEnfermedad(e.target.value)}
               className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
             />
-            <input 
-              placeholder="Alergia" 
-              value={alergia} 
-              onChange={(e) => setAlergia(e.target.value)} 
+            <input
+              placeholder="¿Alguna alergia? Si no, dejá en blanco"
+              value={alergia}
+              onChange={(e) => setAlergia(e.target.value)}
               className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
             />
-            <input 
-              placeholder="Dieta especial" 
-              value={dieta} 
-              onChange={(e) => setDieta(e.target.value)} 
+            <input
+              placeholder="¿Dieta especial? (vegana, celíaca, etc.)"
+              value={dieta}
+              onChange={(e) => setDieta(e.target.value)}
               className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
             />
-            <textarea 
-              placeholder="Sugerencias (opcional)" 
-              value={sugerencias} 
-              onChange={(e) => setSugerencias(e.target.value)} 
+            <textarea
+              placeholder="Sugerencias o comentarios para el viaje (opcional)"
+              value={sugerencias}
+              onChange={(e) => setSugerencias(e.target.value)}
               rows={3}
+              maxLength={500}
               className="w-full border-2 border-gray-200 rounded-xl p-3 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none resize-none"
             />
+            {sugerencias && <p className="text-xs text-gray-400 text-right">{sugerencias.length}/500</p>}
           </div>
 
-          {/* Grupo */}
+          {/* GRUPO */}
           <div className="border-t border-gray-200 pt-4">
             <label className="flex items-center gap-3 text-sm font-medium text-gray-700 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={tieneGrupo} 
-                onChange={(e) => setTieneGrupo(e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={tieneGrupo}
+                onChange={(e) => setTieneGrupo(e.target.checked)}
                 className="w-5 h-5 text-blue-600 border-2 border-gray-300 rounded focus:ring-2 focus:ring-blue-200 cursor-pointer"
               />
-              Viajo en grupo
+              Viajo con más personas (familia o grupo)
             </label>
           </div>
 
@@ -403,128 +510,112 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                   <div key={i} className="bg-white rounded-xl p-4 mb-3 border border-gray-200">
                     <div className="flex justify-between items-center mb-3">
                       <p className="text-sm font-medium text-gray-700">👤 Acompañante {i + 1}</p>
-                      <button 
-                        type="button" 
-                        onClick={() => quitarAcompanante(i)} 
-                        className="text-xs text-red-500 hover:text-red-700 font-medium"
-                      >
-                        ✕ Quitar
-                      </button>
+                      <button type="button" onClick={() => quitarAcompanante(i)} className="text-xs text-red-500 hover:text-red-700 font-medium">✕ Quitar</button>
                     </div>
                     <div className="grid grid-cols-2 gap-3 mb-3">
-                      <input 
-                        placeholder="Nombre" 
-                        value={a.nombre} 
-                        onChange={(e) => actualizarAcompanante(i, 'nombre', e.target.value)} 
+                      <input
+                        placeholder="Nombre *"
+                        value={a.nombre}
+                        onChange={(e) => actualizarAcompanante(i, 'nombre', e.target.value)}
                         className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
                       />
-                      <input 
-                        placeholder="Apellido" 
-                        value={a.apellido} 
-                        onChange={(e) => actualizarAcompanante(i, 'apellido', e.target.value)} 
+                      <input
+                        placeholder="Apellido *"
+                        value={a.apellido}
+                        onChange={(e) => actualizarAcompanante(i, 'apellido', e.target.value)}
                         className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
                       />
                     </div>
-                    
-                    {/* Documento con tipo */}
                     <div className="flex gap-2 mb-3">
-                      <select 
-                        value={a.tipoDocumento || 'DNI'} 
-                        onChange={(e) => actualizarAcompanante(i, 'tipoDocumento', e.target.value)} 
-                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      <select
+                        value={a.tipoDocumento || 'DNI'}
+                        onChange={(e) => actualizarAcompanante(i, 'tipoDocumento', e.target.value)}
+                        className="border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 transition-all outline-none"
                       >
-                        <option className="text-gray-800">DNI</option>
-                        <option className="text-gray-800">Pasaporte</option>
-                        <option className="text-gray-800">LE</option>
-                        <option className="text-gray-800">LC</option>
+                        <option>DNI</option>
+                        <option>Pasaporte</option>
+                        <option>LE</option>
+                        <option>LC</option>
                       </select>
-                      <input 
-                        placeholder="DNI" 
-                        value={a.documento} 
-                        onChange={(e) => actualizarAcompanante(i, 'documento', e.target.value)} 
-                        className="flex-1 border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                      <input
+                        placeholder="Número de documento *"
+                        value={a.documento}
+                        onChange={(e) => actualizarAcompanante(i, 'documento', e.target.value.replace(/\D/g, ''))}
+                        maxLength={8}
+                        className="text-center border-2 border-gray-200 rounded-xl p-2.0 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 transition-all outline-none"
                       />
                     </div>
-                    
-                    {/* Género */}
-                    <select 
-                      value={a.genero || ''} 
-                      onChange={(e) => actualizarAcompanante(i, 'genero', e.target.value)} 
-                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+                    <select
+                      value={a.genero || ''}
+                      onChange={(e) => actualizarAcompanante(i, 'genero', e.target.value)}
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 transition-all outline-none mb-3"
                     >
-                      <option value="" className="text-gray-500">Género</option>
-                      <option className="text-gray-800">Femenino</option>
-                      <option className="text-gray-800">Masculino</option>
-                      <option className="text-gray-800">Otro</option>
-                      <option className="text-gray-800">Prefiero no decir</option>
+                      <option value="">Género</option>
+                      <option>Femenino</option>
+                      <option>Masculino</option>
+                      <option>Otro</option>
+                      <option>Prefiero no decir</option>
                     </select>
-                    
                     <div className="flex gap-2 mb-3">
                       <div className="flex-1">
                         <label className="text-xs text-gray-500 block mb-1">Fecha nacimiento</label>
-                        <input 
-                          type="date" 
-                          value={a.fechaNacimiento} 
-                          onChange={(e) => actualizarAcompanante(i, 'fechaNacimiento', e.target.value)} 
-                          className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                        <input
+                          type="date"
+                          value={a.fechaNacimiento}
+                          max={new Date().toISOString().split('T')[0]}
+                          onChange={(e) => actualizarAcompanante(i, 'fechaNacimiento', e.target.value)}
+                          className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 transition-all outline-none"
                         />
                       </div>
                       <div className="flex-1">
                         <label className="text-xs text-gray-500 block mb-1">Parentesco</label>
-                        <select 
-                          value={a.parentesco} 
-                          onChange={(e) => actualizarAcompanante(i, 'parentesco', e.target.value)} 
-                          className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                        <select
+                          value={a.parentesco}
+                          onChange={(e) => actualizarAcompanante(i, 'parentesco', e.target.value)}
+                          className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 focus:border-blue-500 transition-all outline-none"
                         >
-                          <option value="" className="text-gray-500">Parentesco</option>
-                          <option className="text-gray-800">Hijo/a</option>
-                          <option className="text-gray-800">Pareja</option>
-                          <option className="text-gray-800">Hermano/a</option>
-                          <option className="text-gray-800">Padre/Madre</option>
-                          <option className="text-gray-800">Otro</option>
+                          <option value="">Parentesco</option>
+                          <option>Hijo/a</option>
+                          <option>Pareja</option>
+                          <option>Hermano/a</option>
+                          <option>Padre/Madre</option>
+                          <option>Otro</option>
                         </select>
                       </div>
                     </div>
-                    
                     {a.fechaNacimiento && edadAcomp !== null && (
-                      <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
+                      <div className="mt-1 mb-3 p-2 bg-gray-50 rounded-lg border border-gray-100">
                         <p className="text-xs text-gray-600">
                           Edad: <span className="font-medium text-blue-600">{edadAcomp} años</span>
+                          {edadAcomp < 3 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">👶 No ocupa butaca</span>}
+                          {edadAcomp >= 3 && edadAcomp < 18 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 rounded-full">🧒 Menor</span>}
                         </p>
                       </div>
                     )}
-                    
-                    <input 
-                      placeholder="🌍 Nacionalidad" 
-                      value={a.nacionalidad} 
-                      onChange={(e) => actualizarAcompanante(i, 'nacionalidad', e.target.value)} 
-                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-3"
+                    <input
+                      placeholder="Enfermedad (si tiene)"
+                      value={a.enfermedad}
+                      onChange={(e) => actualizarAcompanante(i, 'enfermedad', e.target.value)}
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 transition-all outline-none mb-2"
                     />
-                    
-                    <input 
-                      placeholder="Enfermedad" 
-                      value={a.enfermedad} 
-                      onChange={(e) => actualizarAcompanante(i, 'enfermedad', e.target.value)} 
-                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-2"
+                    <input
+                      placeholder="Alergia (si tiene)"
+                      value={a.alergia}
+                      onChange={(e) => actualizarAcompanante(i, 'alergia', e.target.value)}
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 transition-all outline-none mb-2"
                     />
-                    <input 
-                      placeholder="Alergia" 
-                      value={a.alergia} 
-                      onChange={(e) => actualizarAcompanante(i, 'alergia', e.target.value)} 
-                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none mb-2"
-                    />
-                    <input 
-                      placeholder="Dieta especial" 
-                      value={a.dieta} 
-                      onChange={(e) => actualizarAcompanante(i, 'dieta', e.target.value)} 
-                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none"
+                    <input
+                      placeholder="Dieta especial (si tiene)"
+                      value={a.dieta}
+                      onChange={(e) => actualizarAcompanante(i, 'dieta', e.target.value)}
+                      className="w-full border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 transition-all outline-none"
                     />
                   </div>
                 )
               })}
-              <button 
-                type="button" 
-                onClick={agregarAcompanante} 
+              <button
+                type="button"
+                onClick={agregarAcompanante}
                 className="w-full border-2 border-dashed border-blue-300 rounded-xl p-3 text-sm text-blue-600 hover:bg-blue-100 hover:border-blue-400 transition-all font-medium"
               >
                 + Agregar acompañante
@@ -534,13 +625,13 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
 
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
-              <p className="text-sm text-red-600">{errorMsg}</p>
+              <p className="text-sm text-red-600">⚠️ {errorMsg}</p>
             </div>
           )}
 
-          <button 
-            type="submit" 
-            disabled={enviando} 
+          <button
+            type="submit"
+            disabled={enviando}
             className="w-full rounded-xl p-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50 hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg hover:shadow-xl"
           >
             {enviando ? (
@@ -551,9 +642,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                 </svg>
                 Enviando...
               </span>
-            ) : (
-              '📨 Enviar inscripción'
-            )}
+            ) : '📨 Enviar inscripción'}
           </button>
         </form>
       </div>
