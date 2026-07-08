@@ -7,17 +7,12 @@ import { createClient } from '@/lib/supabase/client'
 
 const SN_AZUL = '#1B3A5C'
 const SN_CELESTE = '#2D9CB8'
-const SN_AMARILLO = '#F2B632'
 
-// DATOS DE LA EMPRESA
 const EMPRESA = {
   nombre: 'SN Viajes y Turismo',
   legajo: '17096',
   provincia: 'San Juan',
   pais: 'Argentina',
-  direccion: 'Av. Libertador 123, San Juan',
-  telefono: '0264-1234567',
-  email: 'info@snviajes.com'
 }
 
 type Pago = {
@@ -33,6 +28,8 @@ type Pago = {
   monto_final?: number
   created_at: string
   numero_recibo: number
+  es_pago_grupal: boolean
+  grupo_id: string | null
   pasajeros?: {
     id: string
     nombre: string
@@ -42,6 +39,8 @@ type Pago = {
     monto_total: number
     monto_pagado: number
     estado_pago: string
+    grupo_id: string | null
+    es_titular: boolean
   }
   viajes?: {
     destino: string
@@ -55,11 +54,15 @@ export default function ReciboPage() {
   const [pago, setPago] = useState<Pago | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [saldoPendiente, setSaldoPendiente] = useState(0)
+  const [totalPagadoGrupo, setTotalPagadoGrupo] = useState(0)
+  const [totalDeudaGrupo, setTotalDeudaGrupo] = useState(0)
 
   useEffect(() => {
     const cargarPago = async () => {
       const supabase = createClient()
       
+      // Obtener el pago
       const { data: pagoData, error: pagoError } = await supabase
         .from('pagos')
         .select('*')
@@ -72,9 +75,10 @@ export default function ReciboPage() {
         return
       }
 
+      // Obtener el pasajero
       const { data: pasajeroData, error: pasajeroError } = await supabase
         .from('pasajeros')
-        .select('id, nombre, apellido, nombre_pasajero, numero_documento, monto_total, monto_pagado, estado_pago')
+        .select('id, nombre, apellido, nombre_pasajero, numero_documento, monto_total, monto_pagado, estado_pago, grupo_id, es_titular')
         .eq('id', pagoData.pasajero_id)
         .single()
 
@@ -84,11 +88,40 @@ export default function ReciboPage() {
         return
       }
 
+      // Obtener el viaje
       const { data: viajeData, error: viajeError } = await supabase
         .from('viajes')
         .select('destino, fecha_inicio, fecha_fin')
         .eq('id', pagoData.viaje_id)
         .single()
+
+      // Calcular saldo pendiente
+      let saldo = 0
+      let totalPagado = 0
+      let totalDeuda = 0
+
+      // Si es pago grupal, calcular saldo del grupo completo
+      if (pagoData.es_pago_grupal && pagoData.grupo_id) {
+        const { data: miembros } = await supabase
+          .from('pasajeros')
+          .select('monto_pagado, monto_total')
+          .eq('grupo_id', pagoData.grupo_id)
+
+        if (miembros && miembros.length > 0) {
+          totalDeuda = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
+          totalPagado = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
+          saldo = Math.max(0, totalDeuda - totalPagado)
+        }
+      } else {
+        // Pago individual
+        totalDeuda = pasajeroData.monto_total || 0
+        totalPagado = pasajeroData.monto_pagado || 0
+        saldo = Math.max(0, totalDeuda - totalPagado)
+      }
+
+      setSaldoPendiente(saldo)
+      setTotalPagadoGrupo(totalPagado)
+      setTotalDeudaGrupo(totalDeuda)
 
       setPago({
         ...pagoData,
@@ -138,10 +171,6 @@ export default function ReciboPage() {
   const montoOriginal = pago.monto_original || pago.monto
   const montoFinal = pago.monto_final || pago.monto
 
-  const montoTotalPasajero = pago.pasajeros?.monto_total || 0
-  const montoPagadoPasajero = pago.pasajeros?.monto_pagado || 0
-  const saldoPendiente = Math.max(0, montoTotalPasajero - montoPagadoPasajero)
-
   let detallePago = ''
   if (esTarjeta) {
     if (tipoTarjeta === 'debito') {
@@ -164,7 +193,10 @@ export default function ReciboPage() {
     `${pago.pasajeros?.nombre || ''} ${pago.pasajeros?.apellido || ''}`.trim() || 
     'No disponible'
 
-  const estaPagado = pago.pasajeros?.estado_pago === 'pagado' || saldoPendiente <= 0
+  const estaPagado = saldoPendiente <= 0
+
+  // Determinar si es grupo
+  const esGrupo = pago.es_pago_grupal && pago.grupo_id
 
   return (
     <div className="min-h-screen p-4 md:p-8" style={{ background: '#F5F8FA' }}>
@@ -184,7 +216,7 @@ export default function ReciboPage() {
 
       {/* RECIBO */}
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8 print:shadow-none">
-        {/* Logo y título - CON LEGAJO Y PROVINCIA */}
+        {/* Logo y título */}
         <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: SN_CELESTE }}>
           <div className="flex items-center gap-3">
             <div className="relative w-16 h-16">
@@ -216,6 +248,9 @@ export default function ReciboPage() {
           <div>
             <p className="text-xs text-gray-500">Pasajero</p>
             <p className="text-sm font-medium" style={{ color: SN_AZUL }}>{nombreCompleto}</p>
+            {esGrupo && (
+              <p className="text-xs text-blue-600">👥 Pago grupal</p>
+            )}
           </div>
           <div>
             <p className="text-xs text-gray-500">Documento</p>
@@ -247,6 +282,9 @@ export default function ReciboPage() {
               <p className="text-lg font-bold" style={{ color: SN_CELESTE }}>
                 ${(pago.pasajeros?.monto_pagado || 0).toLocaleString()}
               </p>
+              {esGrupo && (
+                <p className="text-xs text-gray-400">(Total grupo: ${totalPagadoGrupo.toLocaleString()})</p>
+              )}
             </div>
           </div>
         </div>
@@ -282,10 +320,12 @@ export default function ReciboPage() {
           </div>
         )}
 
-        {/* Saldo pendiente REAL */}
+        {/* Saldo pendiente - CORREGIDO */}
         <div className="mt-4 border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
           <div className="flex justify-between items-center">
-            <span className="text-sm font-medium" style={{ color: SN_AZUL }}>Saldo pendiente</span>
+            <span className="text-sm font-medium" style={{ color: SN_AZUL }}>
+              {esGrupo ? 'Saldo pendiente del grupo' : 'Saldo pendiente'}
+            </span>
             <span 
               className="text-sm font-bold"
               style={{ 
@@ -297,12 +337,17 @@ export default function ReciboPage() {
           </div>
           {saldoPendiente > 0 && (
             <div className="mt-1 text-xs text-amber-600">
-              ⚠️ El pasajero aún debe ${saldoPendiente.toLocaleString()}
+              ⚠️ {esGrupo ? 'El grupo aún debe' : 'El pasajero aún debe'} ${saldoPendiente.toLocaleString()}
+            </div>
+          )}
+          {esGrupo && (
+            <div className="mt-1 text-xs text-gray-400">
+              Deuda total del grupo: ${totalDeudaGrupo.toLocaleString()} · Pagado: ${totalPagadoGrupo.toLocaleString()}
             </div>
           )}
         </div>
 
-        {/* DATOS DE LA EMPRESA - PIE DE PÁGINA */}
+        {/* Pie de página */}
         <div className="mt-6 text-center text-xs border-t pt-4" style={{ borderColor: '#E5E7EB' }}>
           <p className="text-gray-500">{EMPRESA.nombre} - Legajo {EMPRESA.legajo}</p>
           <p className="text-gray-500">{EMPRESA.provincia}, {EMPRESA.pais}</p>
