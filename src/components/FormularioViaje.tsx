@@ -30,6 +30,8 @@ type ViajeData = {
   cupo_total: number
   descripcion: string | null
   precio: number | null
+  precio_menor: number | null
+  precio_bebe: number | null
 }
 
 export default function FormularioViaje({ viaje }: { viaje?: ViajeData }) {
@@ -41,20 +43,23 @@ export default function FormularioViaje({ viaje }: { viaje?: ViajeData }) {
   const [precio, setPrecio] = useState(viaje?.precio?.toString() ?? '')
   const [guardando, setGuardando] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
-
+const [precioMenor, setPrecioMenor] = useState(viaje?.precio_menor?.toString() ?? '')
+const [precioBebe, setPrecioBebe] = useState(viaje?.precio_bebe?.toString() ?? '')
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErrorMsg('')
     setGuardando(true)
 
     const datos = {
-      destino,
-      fecha_inicio: fechaInicio,
-      fecha_fin: fechaFin,
-      cupo_total: parseInt(cupoTotal),
-      descripcion: descripcion || null,
-      precio: precio ? parseFloat(precio) : null,
-    }
+  destino,
+  fecha_inicio: fechaInicio,
+  fecha_fin: fechaFin,
+  cupo_total: parseInt(cupoTotal),
+  descripcion: descripcion || null,
+  precio: precio ? parseFloat(precio) : null,
+  precio_menor: precioMenor ? parseFloat(precioMenor) : null,
+  precio_bebe: precioBebe ? parseFloat(precioBebe) : null,
+}
 
     const resultado = viaje?.id
       ? await actualizarViaje(viaje.id, datos)
@@ -91,8 +96,14 @@ export default function FormularioViaje({ viaje }: { viaje?: ViajeData }) {
             <label className="text-sm block mb-1" style={{ color: TEXTO_MUTED }}>Cupo total</label>
             <input required type="number" value={cupoTotal} onChange={(e) => setCupoTotal(e.target.value)} style={estiloInput} />
 
-            <label className="text-sm block mb-1" style={{ color: TEXTO_MUTED }}>Precio por persona</label>
-            <input type="number" value={precio} onChange={(e) => setPrecio(e.target.value)} style={estiloInput} />
+            <label className="text-sm block mb-1" style={{ color: TEXTO_MUTED }}>Precio adulto (mayores de 11 años)</label>
+<input type="number" value={precio} onChange={(e) => setPrecio(e.target.value)} style={estiloInput} placeholder="Ej: 140000" />
+
+<label className="text-sm block mb-1" style={{ color: TEXTO_MUTED }}>Precio menor (4 a 10 años)</label>
+<input type="number" value={precioMenor} onChange={(e) => setPrecioMenor(e.target.value)} style={estiloInput} placeholder="Ej: 75000" />
+
+<label className="text-sm block mb-1" style={{ color: TEXTO_MUTED }}>Precio bebé (0 a 3 años)</label>
+<input type="number" value={precioBebe} onChange={(e) => setPrecioBebe(e.target.value)} style={estiloInput} placeholder="Ej: 50000" />
 
             <label className="text-sm block mb-1" style={{ color: TEXTO_MUTED }}>Descripción / pack</label>
             <textarea

@@ -35,6 +35,7 @@ type UpdatePasajero = {
   estado_revision: string
   iniciales_vendedor?: string
   vendedor?: string
+  monto_total?: number
 }
 
 // ============================================
@@ -78,13 +79,44 @@ async function obtenerProximoNumeroRecibo() {
 // ============================================
 
 export async function aprobarPasajero(
-  pasajeroId: string, 
+  pasajeroId: string,
   viajeId: string,
   iniciales?: string
 ) {
   const supabase = await createClient()
 
-  const updateData: UpdatePasajero = { estado_revision: 'aprobado' }
+  // Traer datos del pasajero y del viaje
+  const { data: pasajero } = await supabase
+    .from('pasajeros')
+    .select('fecha_nacimiento')
+    .eq('id', pasajeroId)
+    .single()
+
+  const { data: viaje } = await supabase
+    .from('viajes')
+    .select('precio, precio_menor, precio_bebe')
+    .eq('id', viajeId)
+    .single()
+
+  // Calcular precio según edad
+  let montoTotal = viaje?.precio ?? 0
+  if (pasajero?.fecha_nacimiento && viaje) {
+    const hoy = new Date()
+    const nac = new Date(pasajero.fecha_nacimiento)
+    let edad = hoy.getFullYear() - nac.getFullYear()
+    const mes = hoy.getMonth() - nac.getMonth()
+    if (mes < 0 || (mes === 0 && hoy.getDate() < nac.getDate())) edad--
+
+    if (edad <= 3) montoTotal = viaje.precio_bebe ?? viaje.precio ?? 0
+    else if (edad <= 10) montoTotal = viaje.precio_menor ?? viaje.precio ?? 0
+    else montoTotal = viaje.precio ?? 0
+  }
+
+  const updateData: UpdatePasajero = {
+    estado_revision: 'aprobado',
+    monto_total: montoTotal,
+  }
+
   if (iniciales) {
     updateData.iniciales_vendedor = iniciales.toUpperCase()
     updateData.vendedor = iniciales.toUpperCase()
@@ -95,9 +127,7 @@ export async function aprobarPasajero(
     .update(updateData)
     .eq('id', pasajeroId)
 
-  if (error) {
-    return { error: error.message }
-  }
+  if (error) return { error: error.message }
 
   revalidatePath(`/viaje/${viajeId}`)
   return { error: null }
@@ -108,25 +138,54 @@ export async function aprobarPasajero(
 // ============================================
 
 export async function aprobarGrupo(
-  grupoId: string, 
+  grupoId: string,
   viajeId: string,
   iniciales?: string
 ) {
   const supabase = await createClient()
 
-  const updateData: UpdatePasajero = { estado_revision: 'aprobado' }
-  if (iniciales) {
-    updateData.iniciales_vendedor = iniciales.toUpperCase()
-    updateData.vendedor = iniciales.toUpperCase()
-  }
-
-  const { error } = await supabase
+  const { data: miembros } = await supabase
     .from('pasajeros')
-    .update(updateData)
+    .select('id, fecha_nacimiento')
     .eq('grupo_id', grupoId)
 
-  if (error) {
-    return { error: error.message }
+  const { data: viaje } = await supabase
+    .from('viajes')
+    .select('precio, precio_menor, precio_bebe')
+    .eq('id', viajeId)
+    .single()
+
+  if (!miembros || !viaje) return { error: 'No se encontraron datos' }
+
+  for (const miembro of miembros) {
+    let montoTotal = viaje.precio ?? 0
+
+    if (miembro.fecha_nacimiento) {
+      const hoy = new Date()
+      const nac = new Date(miembro.fecha_nacimiento)
+      let edad = hoy.getFullYear() - nac.getFullYear()
+      const mes = hoy.getMonth() - nac.getMonth()
+      if (mes < 0 || (mes === 0 && hoy.getDate() < nac.getDate())) edad--
+
+      if (edad <= 3) montoTotal = viaje.precio_bebe ?? viaje.precio ?? 0
+      else if (edad <= 10) montoTotal = viaje.precio_menor ?? viaje.precio ?? 0
+      else montoTotal = viaje.precio ?? 0
+    }
+
+    const updateData: UpdatePasajero = {
+      estado_revision: 'aprobado',
+      monto_total: montoTotal,
+    }
+
+    if (iniciales) {
+      updateData.iniciales_vendedor = iniciales.toUpperCase()
+      updateData.vendedor = iniciales.toUpperCase()
+    }
+
+    await supabase
+      .from('pasajeros')
+      .update(updateData)
+      .eq('id', miembro.id)
   }
 
   revalidatePath(`/viaje/${viajeId}`)
