@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo  } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -9,10 +9,17 @@ import ModalPago from '@/components/ModalPago'
 import ModalDetallePasajero from '@/components/ModalDetallePasajero'
 import ModalEditarPasajero from '@/components/ModalEditarPasajero'
 import ModalCancelarPasajero from '@/components/ModalCancelarPasajero'
+import ModalHistorialPagos from '@/components/ModalHistorialPagos'
 import BotonExportarPasajeros from '@/components/BotonExportarPasajeros'
 import BotonExportarCNRT from '@/components/BotonExportarCNRT'
-import ModalDeshacerPago from '@/components/ModalDeshacerPago'
+import ContenidoAsientos from '@/components/ContenidoAsientos'
+import ContenidoItinerario from '@/components/ContenidoItinerario'
+import ContenidoHoteles from '@/components/ContenidoHoteles'
 import { createClient } from '@/lib/supabase/client'
+
+// ============================================
+// CONSTANTES
+// ============================================
 
 const SN_AZUL = '#1B3A5C'
 const SN_CELESTE = '#2D9CB8'
@@ -21,6 +28,10 @@ const BG_PAGINA = '#0B1620'
 const BG_CARD = '#15212C'
 const BORDE = '#1E2D3D'
 const TEXTO_MUTED = '#9FB3C2'
+
+// ============================================
+// TIPOS
+// ============================================
 
 type Pasajero = {
   id: string
@@ -120,6 +131,54 @@ type MiembroGrupoPago = {
   montoPagado?: number
 }
 
+// ============================================
+// TIPOS PARA HOJA DE RUTA
+// ============================================
+
+type Asiento = {
+  numero: number
+  estado: 'ocupado' | 'disponible' | 'cama_ocupada' | 'cama_libre'
+  pasajeroId?: string
+  nombrePasajero?: string
+  tipo: 'semi_cama' | 'cama'
+}
+
+type PasajeroSinAsiento = {
+  id: string
+  nombre: string
+  apellido: string
+  iniciales: string
+}
+
+type Evento = {
+  id: string
+  dia: number
+  fecha: string
+  hora: string
+  titulo: string
+  descripcion: string
+  ubicacion?: string
+}
+
+type Habitacion = {
+  id: string
+  numero: string
+  tipo: string
+  pasajeros: string[]
+  capacidad: number
+}
+
+type Hotel = {
+  nombre: string
+  fechaInicio: string
+  fechaFin: string
+  noches: number
+}
+
+// ============================================
+// FUNCIONES AUXILIARES
+// ============================================
+
 function agruparPasajeros(lista: Pasajero[]) {
   const grupos: Record<string, Pasajero[]> = {}
   const individuales: Pasajero[] = []
@@ -134,9 +193,43 @@ function agruparPasajeros(lista: Pasajero[]) {
   return { grupos, individuales }
 }
 
+// Generar asientos (60 asientos: 12 cama + 48 semi cama)
+const generarAsientos = (): Asiento[] => {
+  const asientos: Asiento[] = []
+  
+  // Asientos cama (1-12) - TODOS LIBRES
+  for (let i = 1; i <= 12; i++) {
+    asientos.push({
+      numero: i,
+      estado: 'cama_libre',
+      tipo: 'cama',
+      nombrePasajero: undefined,
+      pasajeroId: undefined
+    })
+  }
+  
+  // Asientos semi cama (13-60) - TODOS DISPONIBLES
+  for (let i = 13; i <= 60; i++) {
+    asientos.push({
+      numero: i,
+      estado: 'disponible',
+      tipo: 'semi_cama',
+      nombrePasajero: undefined,
+      pasajeroId: undefined
+    })
+  }
+  
+  return asientos
+}
+
+// ============================================
+// COMPONENTE PRINCIPAL
+// ============================================
+
 export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaje; pasajeros: Pasajero[]; hojaRuta: Dia[] }) {
   const router = useRouter()
   const [tab, setTab] = useState<'pasajeros' | 'ruta' | 'pagos'>('pasajeros')
+  const [subTabRuta, setSubTabRuta] = useState<'asientos' | 'itinerario' | 'hoteles'>('asientos')
   const [expandido, setExpandido] = useState<Record<string, boolean>>({})
   const [aprobando, setAprobando] = useState<string | null>(null)
   const [pasajeroModal, setPasajeroModal] = useState<{ id: string; nombre: string } | null>(null)
@@ -165,6 +258,37 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     pasajero_nombre: string
   } | null>(null)
   const [procesandoDeshacer, setProcesandoDeshacer] = useState(false)
+  const [historialPagos, setHistorialPagos] = useState<{
+    pasajeroId: string
+    nombre: string
+  } | null>(null)
+
+  // Estados para Hoja de Ruta
+  const [asientos, setAsientos] = useState<Asiento[]>(generarAsientos())
+  const [eventos, setEventos] = useState<Evento[]>([])
+  const [hotel, setHotel] = useState<Hotel>({
+    nombre: '',
+    fechaInicio: '',
+    fechaFin: '',
+    noches: 0
+  })
+  const [habitaciones, setHabitaciones] = useState<Habitacion[]>([])
+
+ const pasajerosSinAsiento = useMemo(() => {
+  const confirmados = pasajeros.filter(p => p.estado_revision === 'aprobado')
+  return confirmados
+    .filter(p => !asientos.some(a => a.pasajeroId === p.id))
+    .map(p => ({
+      id: p.id,
+      nombre: p.nombre || '',
+      apellido: p.apellido || '',
+      iniciales: `${(p.nombre || '')[0]}${(p.apellido || '')[0]}`.toUpperCase()
+    }))
+}, [pasajeros, asientos])
+
+  // ============================================
+  // HANDLERS DE PAGOS
+  // ============================================
 
   async function handleRegistrarPago(
     pasajeroId: string,
@@ -176,7 +300,17 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   ) {
     if (!monto || monto <= 0) return
     setAprobando(pasajeroId)
-    const resultado = await registrarPago(pasajeroId, monto, metodo, viaje.id, false, undefined, tipoTarjeta, cuotas, recargo)
+    const resultado = await registrarPago(
+      pasajeroId,
+      monto,
+      metodo,
+      viaje.id,
+      false,
+      undefined,
+      tipoTarjeta,
+      cuotas,
+      recargo
+    )
     setAprobando(null)
     setPasajeroModal(null)
     if (resultado.pagoId) {
@@ -194,8 +328,8 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   ) {
     if (!monto || monto <= 0) return
     setAprobando('grupo')
-    const supabase = createClient()
 
+    const supabase = createClient()
     const { data: primerMiembro } = await supabase
       .from('pasajeros')
       .select('grupo_id')
@@ -203,6 +337,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       .single()
 
     const grupoId = primerMiembro?.grupo_id
+
     if (!grupoId) {
       alert('Error: No se encontró el grupo')
       setAprobando(null)
@@ -222,7 +357,17 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       return
     }
 
-    const resultado = await registrarPago(titular.id, monto, metodo, viaje.id, true, grupoId, tipoTarjeta, cuotas, recargo)
+    const resultado = await registrarPago(
+      titular.id,
+      monto,
+      metodo,
+      viaje.id,
+      true,
+      grupoId,
+      tipoTarjeta,
+      cuotas,
+      recargo
+    )
 
     const { data: acompanantes } = await supabase
       .from('pasajeros')
@@ -232,7 +377,10 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
 
     if (acompanantes && acompanantes.length > 0) {
       for (const acomp of acompanantes) {
-        await supabase.from('pasajeros').update({ estado_pago: 'pagado' }).eq('id', acomp.id)
+        await supabase
+          .from('pasajeros')
+          .update({ estado_pago: 'pagado' })
+          .eq('id', acomp.id)
       }
     }
 
@@ -245,31 +393,6 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     if (resultado.pagoId) {
       window.open(`/recibo/${resultado.pagoId}`, '_blank')
     }
-  }
-
-  async function handleAbrirDeshacerPago(pasajeroId: string, nombrePasajero: string) {
-    const supabase = createClient()
-    const { data: pagos } = await supabase
-      .from('pagos')
-      .select('id, monto, metodo_pago, numero_recibo')
-      .eq('pasajero_id', pasajeroId)
-      .eq('eliminado', false)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (!pagos || pagos.length === 0) {
-      alert('No se encontró ningún pago registrado para este pasajero')
-      return
-    }
-
-    const ultimoPago = pagos[0]
-    setDeshacerModal({
-      id: ultimoPago.id,
-      monto: ultimoPago.monto,
-      metodo_pago: ultimoPago.metodo_pago || 'No especificado',
-      numero_recibo: ultimoPago.numero_recibo || 0,
-      pasajero_nombre: nombrePasajero
-    })
   }
 
   async function handleDeshacerPago(motivo: string) {
@@ -285,42 +408,76 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     }
   }
 
+  // ============================================
+  // HANDLERS DE APROBACIÓN
+  // ============================================
+
   async function handleAprobarPasajero(id: string, iniciales?: string) {
-    setDetalleModal(null)
+    setAprobando(id)
     try {
       const resultado = await aprobarPasajero(id, viaje.id, iniciales)
       if (resultado?.error) {
         alert('Error al aprobar: ' + resultado.error)
+        return
       }
+      setDetalleModal(null)
       router.refresh()
     } catch (error) {
-      alert('Error: ' + String(error))
+      console.error('Error:', error)
+      alert('Error al aprobar el pasajero')
+    } finally {
+      setAprobando(null)
     }
   }
 
   async function handleAprobarGrupo(grupoId: string, iniciales?: string) {
-    setDetalleModal(null)
+    setAprobando(grupoId)
     try {
       const resultado = await aprobarGrupo(grupoId, viaje.id, iniciales)
       if (resultado?.error) {
         alert('Error al aprobar: ' + resultado.error)
+        return
       }
+      setDetalleModal(null)
       router.refresh()
     } catch (error) {
-      alert('Error: ' + String(error))
+      console.error('Error:', error)
+      alert('Error al aprobar el grupo')
+    } finally {
+      setAprobando(null)
     }
   }
+
+  // ============================================
+  // HANDLERS DE ELIMINACIÓN
+  // ============================================
 
   const handleEliminarViaje = async () => {
     setEliminando(true)
     const supabase = createClient()
+
     try {
-      const { error: errorPasajeros } = await supabase.from('pasajeros').delete().eq('viaje_id', viaje.id)
+      const { error: errorPasajeros } = await supabase
+        .from('pasajeros')
+        .delete()
+        .eq('viaje_id', viaje.id)
+
       if (errorPasajeros) throw errorPasajeros
-      const { error: errorHojaRuta } = await supabase.from('hoja_ruta').delete().eq('viaje_id', viaje.id)
+
+      const { error: errorHojaRuta } = await supabase
+        .from('hoja_ruta')
+        .delete()
+        .eq('viaje_id', viaje.id)
+
       if (errorHojaRuta) throw errorHojaRuta
-      const { error: errorViaje } = await supabase.from('viajes').delete().eq('id', viaje.id)
+
+      const { error: errorViaje } = await supabase
+        .from('viajes')
+        .delete()
+        .eq('id', viaje.id)
+
       if (errorViaje) throw errorViaje
+
       router.push('/home')
       router.refresh()
     } catch (error) {
@@ -334,8 +491,13 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const handleEliminarPasajero = async (pasajeroId: string) => {
     const supabase = createClient()
     try {
-      const { error } = await supabase.from('pasajeros').delete().eq('id', pasajeroId)
+      const { error } = await supabase
+        .from('pasajeros')
+        .delete()
+        .eq('id', pasajeroId)
+
       if (error) throw error
+
       setDetalleModal(null)
       router.refresh()
     } catch (error) {
@@ -347,8 +509,13 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const handleEliminarGrupo = async (grupoId: string) => {
     const supabase = createClient()
     try {
-      const { error } = await supabase.from('pasajeros').delete().eq('grupo_id', grupoId)
+      const { error } = await supabase
+        .from('pasajeros')
+        .delete()
+        .eq('grupo_id', grupoId)
+
       if (error) throw error
+
       setDetalleModal(null)
       router.refresh()
     } catch (error) {
@@ -357,9 +524,14 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     }
   }
 
+  // ============================================
+  // HANDLERS DE EDICIÓN Y CANCELACIÓN
+  // ============================================
+
   const handleGuardarEdicion = async (data: EdicionData) => {
     setGuardandoEdicion(true)
     const supabase = createClient()
+
     try {
       const { error: errorTitular } = await supabase
         .from('pasajeros')
@@ -384,6 +556,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           parentesco_con_titular: data.titular.parentesco_con_titular,
         })
         .eq('id', data.titular.id)
+
       if (errorTitular) throw errorTitular
 
       if (data.acompanantes && data.acompanantes.length > 0) {
@@ -405,6 +578,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
               dieta_especial: acompanante.dieta_especial,
             })
             .eq('id', acompanante.id)
+
           if (errorAcompanante) throw errorAcompanante
         }
       }
@@ -436,6 +610,10 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     }
   }
 
+  // ============================================
+  // FUNCIONES DE NAVEGACIÓN
+  // ============================================
+
   function toggleGrupo(grupoId: string) {
     setExpandido((prev) => ({ ...prev, [grupoId]: !prev[grupoId] }))
   }
@@ -448,13 +626,21 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
 
   const abrirDetalleIndividual = (pasajero: Pasajero) => {
     setAprobando(null)
-    setDetalleModal({ pasajero, esGrupo: false, miembros: [pasajero] })
+    setDetalleModal({
+      pasajero,
+      esGrupo: false,
+      miembros: [pasajero]
+    })
   }
 
   const abrirDetalleGrupo = (grupoId: string, miembros: Pasajero[]) => {
     setAprobando(null)
     const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
-    setDetalleModal({ pasajero: titular, esGrupo: true, miembros })
+    setDetalleModal({
+      pasajero: titular,
+      esGrupo: true,
+      miembros
+    })
   }
 
   const abrirEdicion = () => {
@@ -467,12 +653,23 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const totalMenores3 = pasajeros.filter(p => p.es_menor_3).length
   const totalMenores18 = pasajeros.filter(p => p.es_menor_18).length
 
+  // ============================================
+  // RENDER
+  // ============================================
+
   return (
     <main className="min-h-screen" style={{ background: BG_PAGINA }}>
+      {/* NAVBAR */}
       <nav className="sticky top-0 z-10 px-6 py-3 flex items-center justify-between" style={{ background: SN_AZUL, boxShadow: '0 2px 12px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center gap-3">
           <div className="relative w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: SN_CELESTE }}>
-            <Image src="/logo-sn.png" alt="SN Viajes" fill className="object-cover" sizes="40px" />
+            <Image
+              src="/logo-sn.png"
+              alt="SN Viajes"
+              fill
+              className="object-cover"
+              sizes="40px"
+            />
           </div>
           <div>
             <p className="text-white font-semibold text-sm leading-none">SN Viajes <span style={{ color: SN_AMARILLO }}>&</span> Turismo</p>
@@ -484,89 +681,109 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           <BotonExportarCNRT pasajeros={pasajeros} viajeNombre={viaje.destino} />
           <Link
             href={`/viaje/${viaje.id}/editar`}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all hover:scale-[1.02]"
-            style={{ background: SN_AMARILLO, color: SN_AZUL }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
+            style={{ background: SN_AMARILLO, color: SN_AZUL, boxShadow: '0 2px 8px rgba(242, 182, 50, 0.3)' }}
           >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
             Editar
           </Link>
           <button
             onClick={() => setMostrarConfirmacionEliminar(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl"
-            style={{ background: '#DC2626', color: 'white' }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
+            style={{ background: '#DC2626', color: 'white', boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)' }}
           >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
             Eliminar
           </button>
           <Link
             href="/home"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all hover:opacity-80"
             style={{ background: 'rgba(255,255,255,0.08)', color: '#9FC8DC', border: '1px solid rgba(255,255,255,0.06)' }}
           >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
             Volver
           </Link>
         </div>
       </nav>
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Header del viaje */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: 'white' }}>{viaje.destino}</h1>
-            <p className="text-sm" style={{ color: TEXTO_MUTED }}>📅 {viaje.fecha_inicio} → {viaje.fecha_fin}</p>
-            <p className="text-sm mt-1" style={{ color: TEXTO_MUTED }}>👥 {confirmados.length}/{viaje.cupo_total} pasajeros confirmados</p>
+            <h1 className="text-3xl font-bold text-white">{viaje.destino}</h1>
+            <p className="text-sm text-gray-400">
+              📅 {viaje.fecha_inicio} → {viaje.fecha_fin}
+            </p>
+            <p className="text-sm text-gray-400 mt-1">
+              👥 {confirmados.length}/{viaje.cupo_total} pasajeros confirmados
+            </p>
           </div>
           <div className="flex gap-3">
-            <div className="rounded-xl px-4 py-2 text-center" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
-              <p className="text-xs" style={{ color: TEXTO_MUTED }}>Confirmados</p>
-              <p className="text-xl font-bold" style={{ color: 'white' }}>{confirmados.length}</p>
+            <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
+              <p className="text-xs text-gray-400">Confirmados</p>
+              <p className="text-xl font-bold text-white">{confirmados.length}</p>
             </div>
-            <div className="rounded-xl px-4 py-2 text-center" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
-              <p className="text-xs" style={{ color: TEXTO_MUTED }}>Pendientes</p>
-              <p className="text-xl font-bold" style={{ color: SN_AMARILLO }}>{pendientes.length}</p>
+            <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
+              <p className="text-xs text-gray-400">Pendientes</p>
+              <p className="text-xl font-bold text-yellow-500">{pendientes.length}</p>
             </div>
-            <div className="rounded-xl px-4 py-2 text-center" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
-              <p className="text-xs" style={{ color: TEXTO_MUTED }}>Cupo</p>
-              <p className="text-xl font-bold" style={{ color: SN_CELESTE }}>{viaje.cupo_total}</p>
+            <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
+              <p className="text-xs text-gray-400">Cupo</p>
+              <p className="text-xl font-bold text-blue-400">{viaje.cupo_total}</p>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+        {/* Stats menores */}
+        <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-gray-800/30 rounded-xl border border-gray-700">
           <div>
-            <p className="text-xs" style={{ color: TEXTO_MUTED }}>Total pasajeros</p>
-            <p className="text-lg font-semibold" style={{ color: 'white' }}>{pasajeros.length}</p>
+            <p className="text-xs text-gray-400">Total pasajeros</p>
+            <p className="text-lg font-semibold text-white">{pasajeros.length}</p>
           </div>
           <div>
-            <p className="text-xs" style={{ color: TEXTO_MUTED }}>👶 Menores de 3 (sin butaca)</p>
-            <p className="text-lg font-semibold" style={{ color: SN_CELESTE }}>{totalMenores3}</p>
+            <p className="text-xs text-gray-400">👶 Menores de 3 (sin butaca)</p>
+            <p className="text-lg font-semibold text-blue-400">{totalMenores3}</p>
           </div>
           <div>
-            <p className="text-xs" style={{ color: TEXTO_MUTED }}>🧒 Menores de 18</p>
-            <p className="text-lg font-semibold" style={{ color: SN_AMARILLO }}>{totalMenores18}</p>
+            <p className="text-xs text-gray-400">🧒 Menores de 18</p>
+            <p className="text-lg font-semibold text-yellow-500">{totalMenores18}</p>
           </div>
         </div>
 
-        <div className="flex gap-6 mb-6" style={{ borderBottom: `1px solid ${BORDE}` }}>
-          {(['pasajeros', 'ruta', 'pagos'] as const).map((t) => (
+        {/* Tabs principales */}
+        <div className="flex gap-8 mb-6 border-b border-gray-700">
+          {['pasajeros', 'ruta', 'pagos'].map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
-              className="pb-2 px-1 text-sm font-medium transition-all"
-              style={tab === t
-                ? { borderBottom: `2px solid ${SN_CELESTE}`, color: 'white' }
-                : { color: TEXTO_MUTED, borderBottom: '2px solid transparent' }}
+              onClick={() => setTab(t as typeof tab)}
+              className={`pb-3 px-1 text-sm font-medium transition-all ${
+                tab === t
+                  ? 'border-b-2 border-blue-500 text-white'
+                  : 'text-gray-400 hover:text-gray-300'
+              }`}
             >
               {t === 'pasajeros' ? '👥 Pasajeros' : t === 'ruta' ? '🗺️ Hoja de ruta' : '💳 Pagos'}
             </button>
           ))}
         </div>
 
-        {/* ===== PESTAÑA PASAJEROS ===== */}
+        {/* ============================================
+            TAB: PASAJEROS
+            ============================================ */}
         {tab === 'pasajeros' && (
           <div>
-            <h2 className="font-medium mb-3 text-sm" style={{ color: SN_CELESTE }}>Pendientes de revisión ({pendientes.length})</h2>
-            <div className="rounded-xl mb-6 overflow-hidden" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+            {/* Pendientes */}
+            <h2 className="font-medium mb-3 text-sm text-blue-400">Pendientes de revisión ({pendientes.length})</h2>
+            <div className="rounded-xl mb-6 overflow-hidden bg-gray-800/50 border border-gray-700">
               {pendientes.length === 0 && (
                 <div className="p-6 text-center">
-                  <p className="text-sm" style={{ color: TEXTO_MUTED }}>✅ No hay pasajeros pendientes</p>
+                  <p className="text-sm text-gray-400">✅ No hay pasajeros pendientes</p>
                 </div>
               )}
               {Object.entries(gruposPendientes).map(([grupoId, miembros]) => {
@@ -574,21 +791,20 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                 const resto = miembros.filter((m) => m.id !== titular.id)
                 const abierto = expandido[grupoId]
                 return (
-                  <div key={grupoId} style={{ borderBottom: `1px solid ${BORDE}` }}>
+                  <div key={grupoId} className="border-b border-gray-700 last:border-0">
                     <div className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
                       <button onClick={() => toggleGrupo(grupoId)} className="text-left flex-1">
-                        <p className="text-sm" style={{ color: 'white' }}>
+                        <p className="text-sm text-white">
                           {titular.nombre} {titular.apellido}
-                          {resto.length > 0 && <span style={{ color: TEXTO_MUTED }}> +{resto.length}</span>}
+                          {resto.length > 0 && <span className="text-gray-400"> +{resto.length}</span>}
                         </p>
-                        <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                        <p className="text-xs text-gray-400">
                           DNI {titular.numero_documento} · {miembros.length} integrante{miembros.length > 1 ? 's' : ''}
                         </p>
                       </button>
                       <button
                         onClick={() => abrirDetalleGrupo(grupoId, miembros)}
-                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
-                        style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
                       >
                         Ver detalle
                       </button>
@@ -596,7 +812,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                     {abierto && resto.length > 0 && (
                       <div className="pl-6 pb-2 space-y-1">
                         {resto.map((m) => (
-                          <p key={m.id} className="text-xs" style={{ color: TEXTO_MUTED }}>
+                          <p key={m.id} className="text-xs text-gray-400 py-1">
                             {m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}
                           </p>
                         ))}
@@ -606,15 +822,14 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                 )
               })}
               {individualesPendientes.map((p) => (
-                <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
                   <div>
-                    <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
-                    <p className="text-xs" style={{ color: TEXTO_MUTED }}>DNI {p.numero_documento}</p>
+                    <p className="text-sm text-white">{p.nombre} {p.apellido}</p>
+                    <p className="text-xs text-gray-400">DNI {p.numero_documento}</p>
                   </div>
                   <button
                     onClick={() => abrirDetalleIndividual(p)}
-                    className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
-                    style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                    className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
                   >
                     Ver detalle
                   </button>
@@ -622,11 +837,12 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
               ))}
             </div>
 
-            <h2 className="font-medium mb-3 text-sm" style={{ color: SN_CELESTE }}>Confirmados ({confirmados.length})</h2>
-            <div className="rounded-xl overflow-hidden" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+            {/* Confirmados */}
+            <h2 className="font-medium mb-3 text-sm text-blue-400">Confirmados ({confirmados.length})</h2>
+            <div className="rounded-xl overflow-hidden bg-gray-800/50 border border-gray-700">
               {confirmados.length === 0 && (
                 <div className="p-6 text-center">
-                  <p className="text-sm" style={{ color: TEXTO_MUTED }}>Todavía no hay pasajeros confirmados</p>
+                  <p className="text-sm text-gray-400">Todavía no hay pasajeros confirmados</p>
                 </div>
               )}
               {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
@@ -638,22 +854,21 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                 const grupoCompleto = (montoTotalGrupo - montoPagadoGrupo) <= 0
                 const pagaron = grupoCompleto ? miembros.length : miembros.filter(m => m.estado_pago === 'pagado').length
                 return (
-                  <div key={grupoId} style={{ borderBottom: `1px solid ${BORDE}` }}>
+                  <div key={grupoId} className="border-b border-gray-700 last:border-0">
                     <div className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
                       <button onClick={() => toggleGrupo(grupoId)} className="text-left flex-1">
-                        <p className="text-sm" style={{ color: 'white' }}>
+                        <p className="text-sm text-white">
                           {titular.nombre} {titular.apellido}
-                          {resto.length > 0 && <span style={{ color: TEXTO_MUTED }}> +{resto.length}</span>}
+                          {resto.length > 0 && <span className="text-gray-400"> +{resto.length}</span>}
                         </p>
                       </button>
                       <div className="flex gap-2">
-                        <span className="text-xs px-2 py-1 rounded-full" style={{ background: '#FAEEDA', color: '#854F0B' }}>
+                        <span className="text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400">
                           {pagaron} de {miembros.length} pagaron
                         </span>
                         <button
                           onClick={() => abrirDetalleGrupo(grupoId, miembros)}
-                          className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
-                          style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                          className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
                         >
                           Ver detalle
                         </button>
@@ -663,16 +878,15 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                       <div className="pl-6 pb-2 space-y-1">
                         {resto.map((m) => (
                           <div key={m.id} className="flex items-center justify-between">
-                            <p className="text-xs" style={{ color: TEXTO_MUTED }}>
-                              {m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}
-                            </p>
+                            <p className="text-xs text-gray-400">{m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}</p>
                             <span
-                              className="text-xs px-2 py-0.5 rounded-full"
-                              style={m.estado_pago === 'pagado'
-                                ? { background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }
-                                : { background: '#FAEEDA', color: '#854F0B' }}
+                              className={`text-xs px-2 py-0.5 rounded-full ${
+                                m.estado_pago === 'pagado'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : 'bg-yellow-500/20 text-yellow-400'
+                              }`}
                             >
-                              {m.estado_pago === 'pagado' ? 'Pagado' : '💰 Sin pago / Deuda'}
+                              {m.estado_pago === 'pagado' ? 'Pagado' : 'Pendiente'}
                             </span>
                           </div>
                         ))}
@@ -681,27 +895,25 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                   </div>
                 )
               })}
-
-              {/* INDIVIDUALES EN PASAJEROS - solo badge de pago + ver detalle */}
               {individualesConfirmados.map((p) => {
                 const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
                 const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
                 return (
-                  <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
-                    <p className="text-sm" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
+                  <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                    <p className="text-sm text-white">{p.nombre} {p.apellido}</p>
                     <div className="flex gap-2">
                       <span
-                        className="text-xs px-2 py-1 rounded-full"
-                        style={estaPagado
-                          ? { background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }
-                          : { background: '#FAEEDA', color: '#854F0B' }}
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          estaPagado
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-yellow-500/20 text-yellow-400'
+                        }`}
                       >
-                        {estaPagado ? '✅ Pagado' : '💰 Sin pago / Deuda'}
+                        {estaPagado ? '✅ Pagado' : 'Pendiente'}
                       </span>
                       <button
                         onClick={() => abrirDetalleIndividual(p)}
-                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80"
-                        style={{ border: `1px solid ${SN_CELESTE}`, color: SN_CELESTE }}
+                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
                       >
                         Ver detalle
                       </button>
@@ -713,141 +925,248 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           </div>
         )}
 
-        {/* ===== PESTAÑA HOJA DE RUTA ===== */}
+        {/* ============================================
+            TAB: HOJA DE RUTA
+            ============================================ */}
         {tab === 'ruta' && (
-          <div className="space-y-3">
-            {hojaRuta.length === 0 && (
-              <div className="text-center py-12 rounded-xl" style={{ background: BG_CARD, border: `1px dashed ${BORDE}` }}>
-                <p className="text-3xl mb-2">🗺️</p>
-                <p className="text-sm" style={{ color: TEXTO_MUTED }}>Todavía no se cargó la hoja de ruta</p>
-              </div>
+          <div>
+            {/* SUBPESTAÑAS */}
+            <div className="flex gap-6 mb-6 border-b border-gray-700">
+              <button
+                onClick={() => setSubTabRuta('asientos')}
+                className={`pb-3 px-1 text-sm font-medium transition-all ${
+                  subTabRuta === 'asientos'
+                    ? 'border-b-2 border-blue-500 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                🪑 Asientos
+              </button>
+              <button
+                onClick={() => setSubTabRuta('itinerario')}
+                className={`pb-3 px-1 text-sm font-medium transition-all ${
+                  subTabRuta === 'itinerario'
+                    ? 'border-b-2 border-blue-500 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                📅 Itinerario
+              </button>
+              <button
+                onClick={() => setSubTabRuta('hoteles')}
+                className={`pb-3 px-1 text-sm font-medium transition-all ${
+                  subTabRuta === 'hoteles'
+                    ? 'border-b-2 border-blue-500 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                🏨 Hoteles
+              </button>
+            </div>
+
+            {/* CONTENIDO DE SUBPESTAÑAS */}
+          {subTabRuta === 'asientos' && (
+  <ContenidoAsientos 
+    asientos={asientos}
+    pasajerosSinAsiento={pasajerosSinAsiento}
+    onAsignarAsiento={(asientoNumero, pasajeroId) => {
+      // Encontrar el pasajero
+      const pasajero = pasajerosSinAsiento.find(p => p.id === pasajeroId)
+      if (!pasajero) return
+
+      // Actualizar el estado local
+      const nuevosAsientos = asientos.map(a =>
+        a.numero === asientoNumero
+          ? { 
+              ...a, 
+              estado: 'ocupado' as const,
+              pasajeroId, 
+              nombrePasajero: `${pasajero.nombre} ${pasajero.apellido}`
+            }
+          : a
+      )
+      setAsientos(nuevosAsientos)
+      
+      // TODO: Aquí deberías guardar en la base de datos
+      // Ejemplo: await guardarAsignacionAsiento(viaje.id, asientoNumero, pasajeroId)
+    }}
+    onDesasignarAsiento={(asientoNumero) => {
+      // Desasignar el asiento
+      const nuevosAsientos = asientos.map(a =>
+        a.numero === asientoNumero
+          ? { 
+              ...a, 
+              estado: a.tipo === 'cama' ? 'cama_libre' as const : 'disponible' as const,
+              pasajeroId: undefined, 
+              nombrePasajero: undefined
+            }
+          : a
+      )
+      setAsientos(nuevosAsientos)
+      
+      // TODO: Aquí deberías eliminar la asignación de la base de datos
+    }}
+  />
+)}
+
+            {subTabRuta === 'itinerario' && (
+              <ContenidoItinerario 
+                eventos={eventos}
+                onAgregarEvento={(evento) => {
+                  setEventos([...eventos, { ...evento, id: crypto.randomUUID() }])
+                }}
+                onEliminarEvento={(id) => {
+                  setEventos(eventos.filter(e => e.id !== id))
+                }}
+              />
             )}
-            {hojaRuta.map((dia) => (
-              <div key={dia.id} className="rounded-xl p-4" style={{ background: BG_CARD, border: `1px solid ${BORDE}`, borderLeft: `3px solid ${SN_CELESTE}` }}>
-                <div className="flex items-center gap-3 mb-1">
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: 'rgba(45,156,184,0.15)', color: SN_CELESTE }}>
-                    Día {dia.dia_numero}
-                  </span>
-                  {dia.fecha && <span className="text-xs" style={{ color: TEXTO_MUTED }}>{dia.fecha}</span>}
-                  {dia.hora_inicio && (
-                    <span className="text-xs" style={{ color: TEXTO_MUTED }}>
-                      🕐 {dia.hora_inicio.slice(0, 5)} - {dia.hora_fin?.slice(0, 5)}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm" style={{ color: 'white' }}>{dia.actividad}</p>
-                {dia.lugar && <p className="text-xs" style={{ color: TEXTO_MUTED }}>📍 {dia.lugar}</p>}
-              </div>
-            ))}
+
+            {subTabRuta === 'hoteles' && (
+              <ContenidoHoteles 
+                hotel={hotel}
+                habitaciones={habitaciones}
+                pasajeros={pasajeros}
+                onAgregarHabitacion={(numero, tipo, capacidad) => {
+                  setHabitaciones([...habitaciones, {
+                    id: crypto.randomUUID(),
+                    numero,
+                    tipo,
+                    capacidad,
+                    pasajeros: []
+                  }])
+                }}
+                onAsignarPasajero={(habitacionId, pasajeroId) => {
+                  const nuevas = habitaciones.map(h => ({
+                    ...h,
+                    pasajeros: h.pasajeros.filter(id => id !== pasajeroId)
+                  }))
+                  const final = nuevas.map(h => ({
+                    ...h,
+                    pasajeros: h.id === habitacionId
+                      ? [...h.pasajeros, pasajeroId]
+                      : h.pasajeros
+                  }))
+                  setHabitaciones(final)
+                }}
+                onQuitarPasajero={(habitacionId, pasajeroId) => {
+                  const nuevas = habitaciones.map(h => ({
+                    ...h,
+                    pasajeros: h.id === habitacionId
+                      ? h.pasajeros.filter(id => id !== pasajeroId)
+                      : h.pasajeros
+                  }))
+                  setHabitaciones(nuevas)
+                }}
+                onEliminarHabitacion={(id) => {
+                  setHabitaciones(habitaciones.filter(h => h.id !== id))
+                }}
+              />
+            )}
           </div>
         )}
 
-        {/* ===== PESTAÑA PAGOS ===== */}
+        {/* ============================================
+            TAB: PAGOS
+            ============================================ */}
         {tab === 'pagos' && (
-          <div className="rounded-xl overflow-hidden" style={{ background: BG_CARD, border: `1px solid ${BORDE}` }}>
+          <div className="rounded-xl overflow-hidden bg-gray-800/50 border border-gray-700">
             {confirmados.length === 0 && (
               <div className="p-6 text-center">
-                <p className="text-sm" style={{ color: TEXTO_MUTED }}>No hay pasajeros confirmados todavía</p>
+                <p className="text-sm text-gray-400">No hay pasajeros confirmados todavía</p>
               </div>
             )}
-
-            {/* GRUPOS EN PAGOS */}
             {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
               const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
               const montoTotalGrupo = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
               const montoPagadoGrupo = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
               const deudaRestante = montoTotalGrupo - montoPagadoGrupo
               const todosPagados = deudaRestante <= 0
-              const tienePagosGrupo = montoPagadoGrupo > 0
 
               return (
-                <div key={grupoId} className="p-4 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                <div key={grupoId} className="p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <p className="text-sm font-medium" style={{ color: 'white' }}>{titular.nombre} {titular.apellido} y grupo</p>
-                      <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                      <p className="text-sm font-medium text-white">{titular.nombre} {titular.apellido} y grupo</p>
+                      <p className="text-xs text-gray-400">
                         {miembros.length} personas · ${montoPagadoGrupo.toLocaleString()} de ${montoTotalGrupo.toLocaleString()}
                       </p>
                       {deudaRestante > 0 && (
-                        <p className="text-xs" style={{ color: SN_AMARILLO }}>Falta: ${deudaRestante.toLocaleString()}</p>
+                        <p className="text-xs text-yellow-500">Falta: ${deudaRestante.toLocaleString()}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {todosPagados ? (
-                        <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }}>
-                          ✅ Grupo pagado
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setPasajeroModal({ id: grupoId, nombre: `${titular.nombre} ${titular.apellido} y grupo` })
-                            setPagoGrupal(true)
-                            setMiembrosGrupo(miembros.map(m => ({
-                              id: m.id,
-                              nombre: `${m.nombre || ''} ${m.apellido || ''}`.trim() || 'Sin nombre',
-                              montoTotal: m.monto_total || 0,
-                              montoPagado: m.monto_pagado || 0
-                            })))
-                          }}
-                          className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
-                          style={{ background: SN_AMARILLO, color: SN_AZUL }}
-                        >
-                          Registrar pago grupal
-                        </button>
-                      )}
-                      {tienePagosGrupo && (
-                        <button
-                          onClick={() => handleAbrirDeshacerPago(titular.id, `${titular.nombre || ''} ${titular.apellido || ''}`.trim())}
-                          className="text-xs px-2 py-1 rounded-lg transition-colors"
-                          style={{ color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }}
-                        >
-                          Deshacer pago
-                        </button>
-                      )}
-                    </div>
+                    {todosPagados ? (
+                      <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
+                        ✅ Grupo pagado
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setPasajeroModal({
+                            id: grupoId,
+                            nombre: `${titular.nombre} ${titular.apellido} y grupo`
+                          })
+                          setPagoGrupal(true)
+                          setMiembrosGrupo(miembros.map(m => ({
+                            id: m.id,
+                            nombre: `${m.nombre || ''} ${m.apellido || ''}`.trim() || 'Sin nombre',
+                            montoTotal: m.monto_total || 0,
+                            montoPagado: m.monto_pagado || 0
+                          })))
+                        }}
+                        className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
+                      >
+                        Registrar pago grupal
+                      </button>
+                    )}
                   </div>
                 </div>
               )
             })}
-
-            {/* INDIVIDUALES EN PAGOS - registrar + deshacer */}
             {individualesConfirmados.map((p) => {
               const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
               const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
-              const tienePagos = (p.monto_pagado || 0) > 0
               return (
-                <div key={p.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors" style={{ borderBottom: `1px solid ${BORDE}` }}>
+                <div key={p.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
                   <div>
-                    <p className="text-sm font-medium" style={{ color: 'white' }}>{p.nombre} {p.apellido}</p>
-                    <p className="text-xs" style={{ color: TEXTO_MUTED }}>
+                    <p className="text-sm font-medium text-white">{p.nombre} {p.apellido}</p>
+                    <p className="text-xs text-gray-400">
                       ${p.monto_pagado?.toLocaleString() ?? 0} de ${p.monto_total?.toLocaleString() ?? 0}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     {estaPagado ? (
-                      <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ background: 'rgba(59,109,17,0.2)', color: '#7EC55A' }}>
-                        ✅ Pagado
-                      </span>
+                      <>
+                        <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
+                          ✅ Pagado
+                        </span>
+                        <button
+                          onClick={() => {
+                            setDeshacerModal({
+                              id: p.id,
+                              monto: p.monto_pagado || 0,
+                              metodo_pago: 'No especificado',
+                              numero_recibo: 0,
+                              pasajero_nombre: `${p.nombre} ${p.apellido}`
+                            })
+                          }}
+                          className="text-xs px-2 py-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                        >
+                          Deshacer
+                        </button>
+                      </>
                     ) : (
                       <button
                         onClick={() => {
-                          setPasajeroModal({ id: p.id, nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre' })
+                          setPasajeroModal({
+                            id: p.id,
+                            nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre'
+                          })
                           setPagoGrupal(false)
                           setMiembrosGrupo([])
                         }}
-                        className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
-                        style={{ background: SN_AMARILLO, color: SN_AZUL }}
+                        className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
                       >
                         Registrar pago
-                      </button>
-                    )}
-                    {tienePagos && (
-                      <button
-                        onClick={() => handleAbrirDeshacerPago(p.id, `${p.nombre || ''} ${p.apellido || ''}`.trim())}
-                        className="text-xs px-2 py-1 rounded-lg transition-colors"
-                        style={{ color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }}
-                      >
-                        Deshacer pago
                       </button>
                     )}
                   </div>
@@ -857,7 +1176,11 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           </div>
         )}
 
-        {/* ===== MODALES ===== */}
+        {/* ============================================
+            MODALES
+            ============================================ */}
+
+        {/* Modal Detalle Pasajero */}
         {detalleModal && (
           <ModalDetallePasajero
             pasajero={detalleModal.pasajero}
@@ -871,7 +1194,10 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                 handleAprobarPasajero(detalleModal.pasajero.id, iniciales)
               }
             }}
-            onCancel={() => { setAprobando(null); setDetalleModal(null) }}
+            onCancel={() => {
+              setAprobando(null)
+              setDetalleModal(null)
+            }}
             onEliminar={() => {
               setAprobando(null)
               if (detalleModal.esGrupo) {
@@ -880,11 +1206,21 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
                 handleEliminarPasajero(detalleModal.pasajero.id)
               }
             }}
-            onEditar={() => { setAprobando(null); abrirEdicion() }}
-            onCancelar={() => { setCancelando(detalleModal.pasajero); setDetalleModal(null) }}
+            onEditar={() => {
+              setAprobando(null)
+              abrirEdicion()
+            }}
+            onCancelar={() => {
+              setCancelando(detalleModal.pasajero)
+              setDetalleModal(null)
+            }}
+            onVerHistorial={(id, nombre) => {
+              setHistorialPagos({ pasajeroId: id, nombre })
+            }}
           />
         )}
 
+        {/* Modal Editar Pasajero */}
         {editando && (
           <ModalEditarPasajero
             pasajero={editando.pasajero}
@@ -896,6 +1232,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           />
         )}
 
+        {/* Modal Cancelar Pasajero */}
         {cancelando && (
           <ModalCancelarPasajero
             pasajero={cancelando}
@@ -905,13 +1242,19 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           />
         )}
 
+        {/* Modal Registrar Pago */}
         {pasajeroModal && (
           <ModalPago
             nombrePasajero={pasajeroModal.nombre}
             esGrupo={pagoGrupal}
             miembros={miembrosGrupo}
             guardando={aprobando === pasajeroModal.id}
-            onCancel={() => { setPasajeroModal(null); setPagoGrupal(false); setMiembrosGrupo([]); setAprobando(null) }}
+            onCancel={() => {
+              setPasajeroModal(null)
+              setPagoGrupal(false)
+              setMiembrosGrupo([])
+              setAprobando(null)
+            }}
             onConfirm={(monto, metodo, tipoTarjeta, cuotas, recargo) => {
               if (pagoGrupal && miembrosGrupo.length > 0) {
                 handleRegistrarPagoGrupal(miembrosGrupo.map(m => m.id), monto, metodo, tipoTarjeta, cuotas, recargo)
@@ -922,25 +1265,114 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           />
         )}
 
+        {/* Modal Deshacer Pago */}
         {deshacerModal && (
-          <ModalDeshacerPago
-            pago={{
-              id: deshacerModal.id,
-              monto: deshacerModal.monto,
-              metodo_pago: deshacerModal.metodo_pago,
-              numero_recibo: deshacerModal.numero_recibo,
-              pasajeros: {
-                nombre: deshacerModal.pasajero_nombre.split(' ')[0] || '',
-                apellido: deshacerModal.pasajero_nombre.split(' ').slice(1).join(' ') || '',
-                nombre_pasajero: deshacerModal.pasajero_nombre
-              }
-            }}
-            onConfirm={handleDeshacerPago}
-            onCancel={() => setDeshacerModal(null)}
-            guardando={procesandoDeshacer}
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <span className="text-red-600 text-xl">⚠️</span>
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">Deshacer pago</h3>
+              </div>
+
+              <p className="text-sm text-gray-700 mb-4">
+                Estás por deshacer el pago de <strong className="text-gray-900">{deshacerModal.pasajero_nombre}</strong>
+              </p>
+
+              <div className="bg-gray-100 rounded-lg p-4 mb-4 border border-gray-300">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Detalle del pago</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="text-gray-600 font-medium">Recibo Nº:</span>
+                  <span className="text-gray-900 font-bold">{deshacerModal.numero_recibo || '---'}</span>
+                  <span className="text-gray-600 font-medium">Monto:</span>
+                  <span className="text-gray-900 font-bold">${deshacerModal.monto?.toLocaleString() || 0}</span>
+                  <span className="text-gray-600 font-medium">Método:</span>
+                  <span className="text-gray-900 font-medium">{deshacerModal.metodo_pago || 'No especificado'}</span>
+                </div>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault()
+                const form = e.target as HTMLFormElement
+                const motivoSelect = form.querySelector('select') as HTMLSelectElement
+                const motivoOtro = form.querySelector('input[type="text"]') as HTMLInputElement
+                let motivo = motivoSelect.value
+                if (motivo === 'Otro' && motivoOtro) {
+                  motivo = motivoOtro.value
+                }
+                if (motivo) {
+                  handleDeshacerPago(motivo)
+                }
+              }} className="space-y-4">
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 block mb-1">
+                    Motivo del deshacer <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    className="w-full border-2 border-gray-300 rounded-lg p-2.5 text-gray-900 bg-white focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all"
+                    onChange={(e) => {
+                      const otroInput = document.getElementById('otroMotivo') as HTMLInputElement
+                      if (otroInput) {
+                        otroInput.style.display = e.target.value === 'Otro' ? 'block' : 'none'
+                      }
+                    }}
+                  >
+                    <option value="">Seleccioná un motivo</option>
+                    <option value="Pago registrado por error">Pago registrado por error</option>
+                    <option value="Monto incorrecto">Monto incorrecto</option>
+                    <option value="Pasajero canceló el viaje">Pasajero canceló el viaje</option>
+                    <option value="Se realizó un reembolso">Se realizó un reembolso</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+
+                <div>
+                  <input
+                    id="otroMotivo"
+                    type="text"
+                    placeholder="Especificá el motivo..."
+                    className="w-full border-2 border-gray-300 rounded-lg p-2.5 text-gray-900 bg-white placeholder-gray-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all hidden"
+                  />
+                </div>
+
+                <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-300">
+                  <p className="text-xs font-semibold text-yellow-800">⚠️ Esta acción no se puede deshacer</p>
+                </div>
+
+                <div className="flex gap-2 mt-4 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeshacerModal(null)}
+                    className="flex-1 border-2 border-gray-300 rounded-lg py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    disabled={procesandoDeshacer}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={procesandoDeshacer}
+                  >
+                    {procesandoDeshacer ? 'Procesando...' : 'Confirmar deshacer'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Historial de Pagos */}
+        {historialPagos && (
+          <ModalHistorialPagos
+            pasajeroId={historialPagos.pasajeroId}
+            nombrePasajero={historialPagos.nombre}
+            onClose={() => setHistorialPagos(null)}
           />
         )}
 
+        {/* Modal Confirmación Eliminar Viaje */}
         {mostrarConfirmacionEliminar && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg p-6 max-w-sm w-full">

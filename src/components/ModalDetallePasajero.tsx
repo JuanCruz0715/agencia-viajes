@@ -44,6 +44,7 @@ type Props = {
   onEliminar?: () => void
   onEditar?: () => void
   onCancelar?: () => void
+  onVerHistorial?: (pasajeroId: string, nombre: string) => void
   estaAprobando?: boolean
 }
 
@@ -63,6 +64,7 @@ export default function ModalDetallePasajero({
   onEliminar,
   onEditar,
   onCancelar,
+  onVerHistorial,
   estaAprobando = false,
 }: Props) {
   const [vendedorSeleccionado, setVendedorSeleccionado] = useState<{ iniciales: string; nombre: string } | null>(null)
@@ -92,6 +94,13 @@ export default function ModalDetallePasajero({
     console.log('🟡 Cerrando modal - resetear aprobando')
     setVendedorSeleccionado(null)
     onCancel()
+  }
+
+  const handleVerHistorial = () => {
+    if (onVerHistorial) {
+      const nombre = `${titular.nombre || ''} ${titular.apellido || ''}`.trim() || 'Pasajero'
+      onVerHistorial(titular.id, nombre)
+    }
   }
 
   return (
@@ -331,20 +340,30 @@ export default function ModalDetallePasajero({
               </button>
             )}
 
+            {onVerHistorial && (
+              <button
+                onClick={handleVerHistorial}
+                className="flex-1 bg-purple-600 text-white rounded-lg py-2 text-sm hover:bg-purple-700 transition-colors"
+                type="button"
+              >
+                📋 Historial de pagos
+              </button>
+            )}
+
             {!yaAprobado && (
-  <button
-    onClick={handleAprobar}
-    disabled={!vendedorSeleccionado}
-    className="flex-1 rounded-lg py-2 text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-    style={{
-      background: vendedorSeleccionado ? '#1B3A5C' : '#9CA3AF',
-      color: 'white',
-    }}
-    type="button"
-  >
-    ✅ Aprobar
-  </button>
-)}
+              <button
+                onClick={handleAprobar}
+                disabled={estaAprobando || !vendedorSeleccionado}
+                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                  vendedorSeleccionado && !estaAprobando
+                    ? 'bg-blue-900 hover:bg-blue-800 text-white' 
+                    : 'bg-gray-300 text-gray-500'
+                }`}
+                type="button"
+              >
+                {estaAprobando ? 'Aprobando...' : '✅ Aprobar'}
+              </button>
+            )}
           </div>
         </div>
       </div>
