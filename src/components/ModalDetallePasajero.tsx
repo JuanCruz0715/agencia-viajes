@@ -46,6 +46,8 @@ type Props = {
   onCancelar?: () => void
   onVerHistorial?: (pasajeroId: string, nombre: string) => void
   estaAprobando?: boolean
+  onMover?: () => void
+  onMoverGrupo?: () => void
 }
 
 // SOLO 3 VENDEDORES
@@ -66,6 +68,8 @@ export default function ModalDetallePasajero({
   onCancelar,
   onVerHistorial,
   estaAprobando = false,
+  onMover,
+  onMoverGrupo,
 }: Props) {
   const [vendedorSeleccionado, setVendedorSeleccionado] = useState<{ iniciales: string; nombre: string } | null>(null)
   const [mostrarListaVendedores, setMostrarListaVendedores] = useState(false)
@@ -347,6 +351,28 @@ export default function ModalDetallePasajero({
                 type="button"
               >
                 📋 Historial de pagos
+              </button>
+            )}
+
+            {/* Mover individual */}
+            {!esGrupo && onMover && (
+              <button
+                onClick={onMover}
+                className="flex-1 bg-purple-600 text-white rounded-lg py-2 text-sm hover:bg-purple-700 transition-colors"
+                type="button"
+              >
+                ✈️ Mover a otro viaje
+              </button>
+            )}
+
+            {/* Mover grupo completo */}
+            {esGrupo && onMoverGrupo && (
+              <button
+                onClick={onMoverGrupo}
+                className="flex-1 bg-purple-600 text-white rounded-lg py-2 text-sm hover:bg-purple-700 transition-colors"
+                type="button"
+              >
+                ✈️ Mover grupo completo
               </button>
             )}
 

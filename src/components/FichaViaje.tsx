@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo  } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -64,6 +64,7 @@ type Pasajero = {
   es_menor_18?: boolean | null
   vendedor?: string | null
   iniciales_vendedor?: string | null
+  viaje_id?: string | null
 }
 
 type Viaje = {
@@ -73,6 +74,7 @@ type Viaje = {
   fecha_fin: string
   cupo_total: number
   descripcion: string | null
+  precio?: number | null
 }
 
 type Dia = {
@@ -176,6 +178,20 @@ type Hotel = {
 }
 
 // ============================================
+// TIPOS PARA MOVER PASAJERO
+// ============================================
+
+type ViajeDisponible = {
+  id: string
+  destino: string
+  fecha_inicio: string
+  fecha_fin: string
+  precio: number | null
+  cupo_total: number
+  cupos_disponibles: number
+}
+
+// ============================================
 // FUNCIONES AUXILIARES
 // ============================================
 
@@ -274,17 +290,226 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   })
   const [habitaciones, setHabitaciones] = useState<Habitacion[]>([])
 
- const pasajerosSinAsiento = useMemo(() => {
-  const confirmados = pasajeros.filter(p => p.estado_revision === 'aprobado')
-  return confirmados
-    .filter(p => !asientos.some(a => a.pasajeroId === p.id))
-    .map(p => ({
-      id: p.id,
-      nombre: p.nombre || '',
-      apellido: p.apellido || '',
-      iniciales: `${(p.nombre || '')[0]}${(p.apellido || '')[0]}`.toUpperCase()
+  // ============================================
+  // ESTADOS PARA MOVER PASAJERO
+  // ============================================
+  const [mostrarModalMover, setMostrarModalMover] = useState(false)
+  const [pasajeroAMover, setPasajeroAMover] = useState<Pasajero | null>(null)
+  const [viajesDisponibles, setViajesDisponibles] = useState<ViajeDisponible[]>([])
+  const [moviendoPasajero, setMoviendoPasajero] = useState(false)
+  const [viajeSeleccionado, setViajeSeleccionado] = useState('')
+  const [asientoSeleccionado, setAsientoSeleccionado] = useState<number | null>(null)
+  const [asientosDestino, setAsientosDestino] = useState<Asiento[]>([])
+
+  const pasajerosSinAsiento = useMemo(() => {
+    const confirmados = pasajeros.filter(p => p.estado_revision === 'aprobado')
+    return confirmados
+      .filter(p => !asientos.some(a => a.pasajeroId === p.id))
+      .map(p => ({
+        id: p.id,
+        nombre: p.nombre || '',
+        apellido: p.apellido || '',
+        iniciales: `${(p.nombre || '')[0]}${(p.apellido || '')[0]}`.toUpperCase()
+      }))
+  }, [pasajeros, asientos])
+
+  // ============================================
+  // FUNCIONES PARA MOVER PASAJERO
+  // ============================================
+
+ const cargarViajesDisponibles = async () => {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('viajes')
+    .select('*')
+    .neq('id', viaje.id)  // Solo excluir el viaje actual
+    // .gte('fecha_inicio', new Date().toISOString()) // ELIMINA esta línea
+    .order('fecha_inicio', { ascending: true })
+    
+  if (!error && data) {
+    const viajesConCupos = await Promise.all(data.map(async (v) => {
+      const { count } = await supabase
+        .from('pasajeros')
+        .select('*', { count: 'exact', head: true })
+        .eq('viaje_id', v.id)
+        .eq('estado_revision', 'aprobado')
+      
+      return {
+        ...v,
+        cupos_disponibles: v.cupo_total - (count || 0)
+      }
     }))
-}, [pasajeros, asientos])
+    setViajesDisponibles(viajesConCupos)
+  }
+}
+
+  const cargarAsientosDestino = async (viajeId: string) => {
+    const supabase = createClient()
+    const { data: pasajerosViaje } = await supabase
+      .from('pasajeros')
+      .select('*')
+      .eq('viaje_id', viajeId)
+      .eq('estado_revision', 'aprobado')
+
+    // Generar asientos base
+    const asientosGenerados = generarAsientos()
+    
+    // Marcar los ocupados
+    if (pasajerosViaje) {
+      // Por simplicidad, asignamos números secuenciales
+      // En un caso real, tendrías una tabla de asignación de asientos
+      pasajerosViaje.forEach((p, index) => {
+        if (index < asientosGenerados.length) {
+          asientosGenerados[index].estado = 'ocupado'
+          asientosGenerados[index].pasajeroId = p.id
+          asientosGenerados[index].nombrePasajero = `${p.nombre || ''} ${p.apellido || ''}`
+        }
+      })
+    }
+    
+    setAsientosDestino(asientosGenerados)
+  }
+
+ const handleMoverPasajero = async () => {
+  // Eliminar la verificación de asientoSeleccionado
+  if (!pasajeroAMover || !viajeSeleccionado) return
+  
+  setMoviendoPasajero(true)
+  const supabase = createClient()
+  
+  try {
+    // 1. Obtener la reserva actual del pasajero
+    const { data: reservaActual, error: errorReserva } = await supabase
+      .from('pasajeros')
+      .select('*')
+      .eq('id', pasajeroAMover.id)
+      .single()
+      
+    if (errorReserva || !reservaActual) {
+      throw new Error('No se encontró la reserva del pasajero')
+    }
+    
+    // 2. Verificar si es titular de un grupo
+    const { data: grupoInfo } = await supabase
+      .from('pasajeros')
+      .select('grupo_id, es_titular')
+      .eq('id', pasajeroAMover.id)
+      .single()
+
+    const esTitularGrupo = grupoInfo?.es_titular === true
+    const grupoId = grupoInfo?.grupo_id
+
+    // 3. Obtener todos los miembros del grupo
+    let miembrosGrupo: Pasajero[] = []
+    if (esTitularGrupo && grupoId) {
+      const { data: miembros } = await supabase
+        .from('pasajeros')
+        .select('*')
+        .eq('grupo_id', grupoId)
+      
+      miembrosGrupo = miembros || []
+    }
+
+    // 4. Obtener información de los viajes
+    const { data: viajeOrigen } = await supabase
+      .from('viajes')
+      .select('*')
+      .eq('id', viaje.id)
+      .single()
+      
+    const { data: viajeDestino } = await supabase
+      .from('viajes')
+      .select('*')
+      .eq('id', viajeSeleccionado)
+      .single()
+      
+    if (!viajeOrigen || !viajeDestino) {
+      throw new Error('Viaje no encontrado')
+    }
+    
+    // 5. Calcular diferencias de precio
+    const precioOrigen = viajeOrigen.precio || 0
+    const precioDestino = viajeDestino.precio || 0
+    const diferenciaPrecio = precioDestino - precioOrigen
+
+    // 6. Si es grupo, mover todos los miembros
+    if (esTitularGrupo && miembrosGrupo.length > 0) {
+      let mensajeGrupo = `✅ Grupo movido exitosamente!\n\n`
+      mensajeGrupo += `Viaje original: ${viajeOrigen.destino} ($${precioOrigen.toLocaleString()})\n`
+      mensajeGrupo += `Viaje destino: ${viajeDestino.destino} ($${precioDestino.toLocaleString()})\n`
+      mensajeGrupo += `Cantidad de pasajeros: ${miembrosGrupo.length}\n\n`
+      mensajeGrupo += `Detalles por pasajero:\n`
+
+      for (const miembro of miembrosGrupo) {
+        const montoPagadoOriginal = miembro.monto_pagado || 0
+        const deudaRestante = precioDestino - montoPagadoOriginal
+        const estaPagado = deudaRestante <= 0
+        
+        const { error: errorUpdate } = await supabase
+          .from('pasajeros')
+          .update({
+            viaje_id: viajeSeleccionado,
+            monto_total: precioDestino,
+            estado_pago: estaPagado ? 'pagado' : 'pendiente'
+          })
+          .eq('id', miembro.id)
+          
+        if (errorUpdate) throw errorUpdate
+
+        const nombre = `${miembro.nombre || ''} ${miembro.apellido || ''}`.trim() || 'Sin nombre'
+        mensajeGrupo += `  ${nombre}: Pagado $${montoPagadoOriginal.toLocaleString()} | Debe $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'} ${estaPagado ? '✅' : '⚠️'}\n`
+      }
+
+      alert(mensajeGrupo)
+      
+    } else {
+      // Mover un solo pasajero
+      const montoPagadoOriginal = pasajeroAMover.monto_pagado || 0
+      const deudaRestante = precioDestino - montoPagadoOriginal
+      const estaPagado = deudaRestante <= 0
+      
+      const { error: errorUpdate } = await supabase
+        .from('pasajeros')
+        .update({
+          viaje_id: viajeSeleccionado,
+          monto_total: precioDestino,
+          estado_pago: estaPagado ? 'pagado' : 'pendiente'
+        })
+        .eq('id', pasajeroAMover.id)
+        
+      if (errorUpdate) throw errorUpdate
+
+      const mensaje = `
+✅ Pasajero movido exitosamente!
+
+Viaje original: ${viajeOrigen.destino} ($${precioOrigen.toLocaleString()})
+Viaje destino: ${viajeDestino.destino} ($${precioDestino.toLocaleString()})
+
+💰 Resumen de pago:
+Monto pagado: $${montoPagadoOriginal.toLocaleString()}
+Precio nuevo viaje: $${precioDestino.toLocaleString()}
+Diferencia: ${diferenciaPrecio >= 0 ? '+' : '-'}$${Math.abs(diferenciaPrecio).toLocaleString()}
+Deuda restante: $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'}
+
+Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaRestante.toLocaleString()})`}
+      `
+      alert(mensaje)
+    }
+    
+    router.refresh()
+    setMostrarModalMover(false)
+    setPasajeroAMover(null)
+    setViajeSeleccionado('')
+    
+  } catch (error) {
+    console.error('Error al mover pasajero:', error)
+    alert('❌ Error al mover el pasajero. Por favor, intenta de nuevo.')
+  } finally {
+    setMoviendoPasajero(false)
+  }
+}
+
+ 
 
   // ============================================
   // HANDLERS DE PAGOS
@@ -965,49 +1190,41 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
             </div>
 
             {/* CONTENIDO DE SUBPESTAÑAS */}
-          {subTabRuta === 'asientos' && (
-  <ContenidoAsientos 
-    asientos={asientos}
-    pasajerosSinAsiento={pasajerosSinAsiento}
-    onAsignarAsiento={(asientoNumero, pasajeroId) => {
-      // Encontrar el pasajero
-      const pasajero = pasajerosSinAsiento.find(p => p.id === pasajeroId)
-      if (!pasajero) return
+            {subTabRuta === 'asientos' && (
+              <ContenidoAsientos 
+                asientos={asientos}
+                pasajerosSinAsiento={pasajerosSinAsiento}
+                onAsignarAsiento={(asientoNumero, pasajeroId) => {
+                  const pasajero = pasajerosSinAsiento.find(p => p.id === pasajeroId)
+                  if (!pasajero) return
 
-      // Actualizar el estado local
-      const nuevosAsientos = asientos.map(a =>
-        a.numero === asientoNumero
-          ? { 
-              ...a, 
-              estado: 'ocupado' as const,
-              pasajeroId, 
-              nombrePasajero: `${pasajero.nombre} ${pasajero.apellido}`
-            }
-          : a
-      )
-      setAsientos(nuevosAsientos)
-      
-      // TODO: Aquí deberías guardar en la base de datos
-      // Ejemplo: await guardarAsignacionAsiento(viaje.id, asientoNumero, pasajeroId)
-    }}
-    onDesasignarAsiento={(asientoNumero) => {
-      // Desasignar el asiento
-      const nuevosAsientos = asientos.map(a =>
-        a.numero === asientoNumero
-          ? { 
-              ...a, 
-              estado: a.tipo === 'cama' ? 'cama_libre' as const : 'disponible' as const,
-              pasajeroId: undefined, 
-              nombrePasajero: undefined
-            }
-          : a
-      )
-      setAsientos(nuevosAsientos)
-      
-      // TODO: Aquí deberías eliminar la asignación de la base de datos
-    }}
-  />
-)}
+                  const nuevosAsientos = asientos.map(a =>
+                    a.numero === asientoNumero
+                      ? { 
+                          ...a, 
+                          estado: 'ocupado' as const,
+                          pasajeroId, 
+                          nombrePasajero: `${pasajero.nombre} ${pasajero.apellido}`
+                        }
+                      : a
+                  )
+                  setAsientos(nuevosAsientos)
+                }}
+                onDesasignarAsiento={(asientoNumero) => {
+                  const nuevosAsientos = asientos.map(a =>
+                    a.numero === asientoNumero
+                      ? { 
+                          ...a, 
+                          estado: a.tipo === 'cama' ? 'cama_libre' as const : 'disponible' as const,
+                          pasajeroId: undefined, 
+                          nombrePasajero: undefined
+                        }
+                      : a
+                  )
+                  setAsientos(nuevosAsientos)
+                }}
+              />
+            )}
 
             {subTabRuta === 'itinerario' && (
               <ContenidoItinerario 
@@ -1217,8 +1434,27 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
             onVerHistorial={(id, nombre) => {
               setHistorialPagos({ pasajeroId: id, nombre })
             }}
-          />
-        )}
+            onMover={() => {
+      // Mover individual
+      if (!detalleModal.esGrupo) {
+        setPasajeroAMover(detalleModal.pasajero)
+        setDetalleModal(null)
+        cargarViajesDisponibles()
+        setMostrarModalMover(true)
+      }
+    }}
+    onMoverGrupo={() => {
+      // Mover grupo completo
+      if (detalleModal.esGrupo) {
+        const titular = detalleModal.miembros.find(m => m.es_titular) || detalleModal.pasajero
+        setPasajeroAMover(titular)
+        setDetalleModal(null)
+        cargarViajesDisponibles()
+        setMostrarModalMover(true)
+      }
+    }}
+  />
+)}
 
         {/* Modal Editar Pasajero */}
         {editando && (
@@ -1403,6 +1639,119 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
             </div>
           </div>
         )}
+
+        {/* ============================================
+    MODAL MOVER PASAJERO (SIMPLIFICADO)
+    ============================================ */}
+{mostrarModalMover && pasajeroAMover && (
+  <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+    <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-700">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+          <span className="text-blue-400 text-xl">✈️</span>
+        </div>
+        <h3 className="text-xl font-bold text-white">Mover pasajero</h3>
+      </div>
+
+      <p className="text-sm text-gray-300 mb-4">
+        Mover a <strong className="text-white">{pasajeroAMover.nombre} {pasajeroAMover.apellido}</strong>
+        <br />
+        <span className="text-xs text-gray-400">Viaje actual: {viaje.destino}</span>
+      </p>
+
+      {/* Viaje destino - Select simplificado */}
+      <div className="mb-4">
+        <label className="text-sm font-semibold text-gray-300 block mb-1">
+          🎯 Viaje destino:
+        </label>
+        <select
+          value={viajeSeleccionado}
+          onChange={(e) => setViajeSeleccionado(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2.5 text-white focus:border-blue-500 focus:outline-none"
+        >
+          <option value="">Seleccionar viaje...</option>
+          {viajesDisponibles.map(v => (
+            <option key={v.id} value={v.id}>
+              {v.destino} - {v.fecha_inicio} (${v.precio?.toLocaleString() || 0}) - {v.cupos_disponibles} cupos
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Diferencia de precio */}
+      {viajeSeleccionado && (
+        <>
+          {(() => {
+            const viajeDest = viajesDisponibles.find(v => v.id === viajeSeleccionado)
+            if (!viajeDest) return null
+            const precioOrigen = viaje.precio || 0
+            const precioDestino = viajeDest.precio || 0
+            const diferencia = precioDestino - precioOrigen
+            const montoPagado = pasajeroAMover.monto_pagado || 0
+            const deudaRestante = precioDestino - montoPagado
+            
+            return (
+              <div className={`p-3 rounded-lg mb-4 ${
+                deudaRestante > 0
+                  ? 'bg-yellow-500/10 border border-yellow-500/50'
+                  : 'bg-green-500/10 border border-green-500/50'
+              }`}>
+                <p className="text-sm text-gray-300">
+                  💰 Resumen de pago:
+                </p>
+                <div className="mt-2 space-y-1 text-sm">
+                  <p className="text-gray-300">
+                    Pagado: <span className="text-green-400 font-semibold">${montoPagado.toLocaleString()}</span>
+                  </p>
+                  <p className="text-gray-300">
+                    Precio destino: <span className="text-blue-400 font-semibold">${precioDestino.toLocaleString()}</span>
+                  </p>
+                  <p className="text-gray-300">
+                    Diferencia: <span className={`font-semibold ${diferencia >= 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                      {diferencia >= 0 ? '+' : ''}{diferencia.toLocaleString()}
+                    </span>
+                  </p>
+                  <p className={`font-semibold ${deudaRestante > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                    {deudaRestante > 0 
+                      ? `⚠️ Debe: $${deudaRestante.toLocaleString()}`
+                      : '✅ Saldo suficiente'}
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
+        </>
+      )}
+
+      {/* Botones */}
+      <div className="flex gap-2 mt-4 pt-2 border-t border-gray-700">
+        <button
+          onClick={() => {
+            setMostrarModalMover(false)
+            setPasajeroAMover(null)
+            setViajeSeleccionado('')
+          }}
+          className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+          disabled={moviendoPasajero}
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={handleMoverPasajero}
+          disabled={!viajeSeleccionado || moviendoPasajero}
+          className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+            viajeSeleccionado && !moviendoPasajero
+              ? 'bg-blue-600 hover:bg-blue-700 text-white'
+              : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          {moviendoPasajero ? 'Moviendo...' : 'Mover pasajero'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+        
       </div>
     </main>
   )

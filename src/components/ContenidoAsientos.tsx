@@ -32,88 +32,146 @@ type Props = {
   onDesasignarAsiento?: (asientoNumero: number) => void
 }
 
-// ✅ COMPONENTES AUXILIARES FUERA DEL COMPONENTE PRINCIPAL
+// Distribución con el tipo correcto
+const FILAS_PLANTA_ALTA: Array<[number | null, number | null, number | null, number | null]> = [
+  [1, 2, 3, 4],
+  [5, 6, 7, 8],
+  [9, 10, 11, 12],
+  [13, 14, 15, 16],
+  [17, 18, 19, 20],
+  [21, 22, 23, 24],
+  [25, 26, 27, 28],
+  [29, 30, 31, 32],
+  [33, 34, 35, 36],
+  [37, 38, 39, 40],
+  [41, 42, 43, 44],
+]
 
-function Pasillo() {
-  return <div style={{ width: 12, flexShrink: 0 }} />
+const FILAS_PLANTA_BAJA: Array<[number | null, number | null, number | null, number | null]> = [
+  [45, 46, 47, 48],
+  [49, 50, 51, 52],
+  [53, 54, 55, 56],
+  [57, 58, 59, 60],
+]
+
+type PlantaColectivoProps = {
+  titulo: string
+  filas: Array<[number | null, number | null, number | null, number | null]>
+  esCama?: boolean
+  asientos: Asiento[]
+  asientoSeleccionado: number | null
+  onAsientoClick: (numero: number) => void
+  onTooltipChange: (numero: number | null) => void
 }
 
-function Separador({ label }: { label?: string }) {
+function PlantaColectivo({ 
+  titulo, 
+  filas, 
+  esCama = false,
+  asientos,
+  asientoSeleccionado,
+  onAsientoClick,
+  onTooltipChange
+}: PlantaColectivoProps) {
+  function BtnAsiento({ num }: { num: number | null }) {
+    if (!num) return <div style={{ width: 38, height: 38, flexShrink: 0 }} />
+    const a = asientos.find(a => a.numero === num)
+    if (!a) return <div style={{ width: 38, height: 38, flexShrink: 0 }} />
+
+    const isSelected = asientoSeleccionado === num
+
+    function estiloBtn(a: Asiento | undefined, sel: boolean): React.CSSProperties {
+      const base: React.CSSProperties = {
+        width: 38, height: 38, borderRadius: 6, fontSize: 11, fontWeight: 600,
+        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0, border: '2px solid', transition: 'all .12s'
+      }
+      if (!a) return { ...base, background: 'transparent', borderColor: 'transparent', cursor: 'default', color: 'transparent' }
+      if (sel) return { ...base, background: SN_AMARILLO, borderColor: SN_AMARILLO, color: SN_AZUL, transform: 'scale(1.08)' }
+      switch (a.estado) {
+        case 'ocupado': return { ...base, background: SN_CELESTE, borderColor: '#1a7a9a', color: 'white' }
+        case 'disponible': return { ...base, background: '#1a2a3a', borderColor: '#2a3a4a', color: TEXTO_MUTED }
+        case 'cama_ocupada': return { ...base, background: SN_AMARILLO, borderColor: '#c49020', color: SN_AZUL }
+        case 'cama_libre': return { ...base, background: '#1a2a1a', borderColor: SN_AMARILLO, color: SN_AMARILLO }
+      }
+    }
+
+    return (
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => onAsientoClick(num)}
+          onMouseEnter={() => onTooltipChange(num)}
+          onMouseLeave={() => onTooltipChange(null)}
+          style={estiloBtn(a, isSelected)}
+          title={a.nombrePasajero ? `${num} — ${a.nombrePasajero}` : `Asiento ${num}`}
+        >
+          {num}
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' }}>
-      <div style={{ flex: 1, height: 1, background: BORDE, opacity: .5 }} />
-      {label && <span style={{ fontSize: 8, color: TEXTO_MUTED, letterSpacing: .5 }}>{label}</span>}
-      <div style={{ flex: 1, height: 1, background: BORDE, opacity: .5 }} />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      {/* Cabecera del colectivo */}
+      <div style={{
+        width: '100%', height: 36, borderRadius: '60px 60px 0 0',
+        background: '#1a2535', border: `1px solid ${BORDE}`, borderBottom: 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 0
+      }}>
+        {esCama ? (
+          <div style={{ width: 28, height: 18, borderRadius: 4, border: `1px solid ${BORDE}`, background: '#0d1825' }} />
+        ) : (
+          <div style={{ width: 40, height: 10, borderRadius: 10, background: '#0d1825', border: `1px solid ${BORDE}` }} />
+        )}
+      </div>
+
+      {/* Cuerpo */}
+      <div style={{
+        background: BG_PAGINA, border: `1px solid ${BORDE}`,
+        borderRadius: '0 0 8px 8px', padding: '10px 14px',
+        display: 'flex', flexDirection: 'column', gap: 3
+      }}>
+        <p style={{ margin: '0 0 8px', fontSize: 10, fontWeight: 600, color: TEXTO_MUTED, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 1 }}>
+          {titulo}
+        </p>
+
+        {filas.map((fila, i) => {
+          // Fila vacía = separador (WC o espacio)
+          if (fila.every(n => n === null)) {
+            return (
+              <div key={i} style={{ height: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: '100%', height: 1, background: BORDE, opacity: .4 }} />
+              </div>
+            )
+          }
+          return (
+            <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {/* Lado izquierdo */}
+              <BtnAsiento num={fila[0]} />
+              <BtnAsiento num={fila[1]} />
+              {/* Pasillo */}
+              <div style={{ width: 14, flexShrink: 0 }} />
+              {/* Lado derecho */}
+              <BtnAsiento num={fila[2]} />
+              <BtnAsiento num={fila[3]} />
+            </div>
+          )
+        })}
+
+        {/* WC en planta baja */}
+        {esCama && (
+          <div style={{
+            marginTop: 4, padding: '4px 8px', borderRadius: 6,
+            border: `1px dashed ${BORDE}`, textAlign: 'center'
+          }}>
+            <span style={{ fontSize: 9, color: TEXTO_MUTED }}>🚻 WC</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
-
-// ✅ COMPONENTE ASIENTO FUERA
-function Asiento({ 
-  num, 
-  asiento, 
-  seleccionado, 
-  onSelect, 
-  onMouseEnter, 
-  onMouseLeave, 
-  tooltip 
-}: { 
-  num: number
-  asiento?: Asiento
-  seleccionado: boolean
-  onSelect: () => void
-  onMouseEnter: () => void
-  onMouseLeave: () => void
-  tooltip: number | null
-}) {
-  if (!asiento) {
-    return <div style={{ width: 32, height: 32, flexShrink: 0 }} />
-  }
-
-  const getEstilo = (): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      width: 32, height: 32, borderRadius: 5, fontSize: 10, fontWeight: 500,
-      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, border: '1.5px solid', transition: 'all .12s', position: 'relative'
-    }
-    if (seleccionado) {
-      return { ...base, background: SN_AMARILLO, borderColor: SN_AMARILLO, color: SN_AZUL, transform: 'scale(1.1)' }
-    }
-    switch (asiento.estado) {
-      case 'ocupado': return { ...base, background: SN_CELESTE, borderColor: SN_CELESTE, color: 'white' }
-      case 'disponible': return { ...base, background: BG_CARD, borderColor: BORDE, color: TEXTO_MUTED }
-      case 'cama_ocupada': return { ...base, background: SN_AMARILLO, borderColor: SN_AMARILLO, color: SN_AZUL }
-      case 'cama_libre': return { ...base, background: BG_CARD, borderColor: SN_AMARILLO, color: SN_AMARILLO }
-    }
-  }
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={onSelect}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-        style={getEstilo()}
-        title={asiento.nombrePasajero ? `${num} — ${asiento.nombrePasajero}` : `Asiento ${num}`}
-      >
-        {num}
-      </button>
-      {tooltip === num && asiento.nombrePasajero && (
-        <div style={{
-          position: 'absolute', bottom: 36, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(0,0,0,0.9)', color: 'white', padding: '3px 8px',
-          borderRadius: 4, fontSize: 9, whiteSpace: 'nowrap', zIndex: 20, pointerEvents: 'none'
-        }}>
-          {asiento.nombrePasajero}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ============================================
-// COMPONENTE PRINCIPAL
-// ============================================
 
 export default function ContenidoAsientos({
   asientos,
@@ -125,10 +183,9 @@ export default function ContenidoAsientos({
   const [pasajeroSel, setPasajeroSel] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<number | null>(null)
 
-  const getAsiento = (num: number) => asientos.find(a => a.numero === num)
   const asientoSelObj = asientoSel ? asientos.find(a => a.numero === asientoSel) : null
 
-  const handleAsignar = () => {
+  function handleAsignar() {
     if (asientoSel && pasajeroSel) {
       onAsignarAsiento(asientoSel, pasajeroSel)
       setAsientoSel(null)
@@ -136,45 +193,35 @@ export default function ContenidoAsientos({
     }
   }
 
-  const handleDesasignar = () => {
+  function handleDesasignar() {
     if (asientoSel && onDesasignarAsiento) {
       onDesasignarAsiento(asientoSel)
       setAsientoSel(null)
     }
   }
 
-  // Renderizar Asiento con las props necesarias
-  const renderAsiento = (num: number) => {
-    const a = getAsiento(num)
-    return (
-      <Asiento
-        key={num}
-        num={num}
-        asiento={a}
-        seleccionado={asientoSel === num}
-        onSelect={() => setAsientoSel(prev => prev === num ? null : num)}
-        onMouseEnter={() => setTooltip(num)}
-        onMouseLeave={() => setTooltip(null)}
-        tooltip={tooltip}
-      />
-    )
-  }
+  const totalOcupados = asientos.filter(a => a.estado === 'ocupado' || a.estado === 'cama_ocupada').length
 
   return (
-    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-      {/* ===== MAPA DEL COLECTIVO ===== */}
-      <div style={{ flex: 1, minWidth: 300, background: BG_CARD, border: `0.5px solid ${BORDE}`, borderRadius: 12, padding: 14, overflowX: 'auto' }}>
+      {/* ===== COLECTIVO ===== */}
+      <div style={{ background: BG_CARD, border: `0.5px solid ${BORDE}`, borderRadius: 12, padding: 16, flex: 1, minWidth: 320 }}>
 
-        {/* Header + leyenda */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <p style={{ margin: 0, fontWeight: 500, color: 'white', fontSize: 13 }}>Mapa de asientos</p>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+          <p style={{ margin: 0, fontWeight: 500, color: 'white', fontSize: 13 }}>
+            Mapa de asientos
+            <span style={{ marginLeft: 8, fontSize: 11, color: TEXTO_MUTED }}>
+              {totalOcupados}/{asientos.length} ocupados
+            </span>
+          </p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {[
               { bg: SN_CELESTE, label: 'Ocupado' },
-              { bg: BG_CARD, bd: TEXTO_MUTED, label: 'Libre' },
+              { bg: '#1a2a3a', bd: '#2a3a4a', label: 'Libre' },
               { bg: SN_AMARILLO, label: 'Cama ocup.' },
-              { bg: BG_CARD, bd: SN_AMARILLO, label: 'Cama libre' },
+              { bg: '#1a2a1a', bd: SN_AMARILLO, label: 'Cama libre' },
             ].map(l => (
               <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 2, background: l.bg, border: l.bd ? `1.5px solid ${l.bd}` : undefined, display: 'inline-block' }} />
@@ -184,77 +231,30 @@ export default function ContenidoAsientos({
           </div>
         </div>
 
-        {/* ---- PISO SUPERIOR ---- */}
-        <div style={{ marginBottom: 14 }}>
-          <p style={{ margin: '0 0 6px', fontSize: 9, fontWeight: 500, color: TEXTO_MUTED, textTransform: 'uppercase', letterSpacing: 1 }}>Piso superior — semi cama</p>
-
-          <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, background: BG_PAGINA, borderRadius: 8, padding: 10, border: `1px solid ${BORDE}` }}>
-            {/* Fila superior arriba: 1 59 | 11 15 19 23 27 31 35 39 43 | 47 50 53 56 */}
-            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-              {renderAsiento(1)}{renderAsiento(59)}
-              <Pasillo />
-              {renderAsiento(11)}{renderAsiento(15)}{renderAsiento(19)}{renderAsiento(23)}
-              {renderAsiento(27)}{renderAsiento(31)}{renderAsiento(35)}{renderAsiento(39)}{renderAsiento(43)}
-              <Pasillo />
-              <div style={{ borderLeft: `1px dashed ${SN_AMARILLO}`, height: 32, opacity: .5, marginRight: 4 }} />
-              {renderAsiento(47)}{renderAsiento(50)}{renderAsiento(53)}{renderAsiento(56)}
-            </div>
-
-            <Separador label="pasillo" />
-
-            {/* Fila superior abajo: 2 60 | 12 16 20 24 28 32 36 40 44 | 48 51 54 57 */}
-            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-              {renderAsiento(2)}{renderAsiento(60)}
-              <Pasillo />
-              {renderAsiento(12)}{renderAsiento(16)}{renderAsiento(20)}{renderAsiento(24)}
-              {renderAsiento(28)}{renderAsiento(32)}{renderAsiento(36)}{renderAsiento(40)}{renderAsiento(44)}
-              <Pasillo />
-              <div style={{ borderLeft: `1px dashed ${SN_AMARILLO}`, height: 32, opacity: .5, marginRight: 4 }} />
-              {renderAsiento(48)}{renderAsiento(51)}{renderAsiento(54)}{renderAsiento(57)}
-            </div>
-          </div>
-        </div>
-
-        {/* ---- PISO INFERIOR ---- */}
-        <div>
-          <p style={{ margin: '0 0 6px', fontSize: 9, fontWeight: 500, color: TEXTO_MUTED, textTransform: 'uppercase', letterSpacing: 1 }}>Piso inferior — semi cama</p>
-
-          <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, background: BG_PAGINA, borderRadius: 8, padding: 10, border: `1px solid ${BORDE}` }}>
-            {/* Fila inferior arriba: 3 5 7 9 | 13 17 21 25 29 33 37 41 45 | WC | 48 51 54 57 */}
-            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-              {renderAsiento(3)}{renderAsiento(5)}{renderAsiento(7)}{renderAsiento(9)}
-              <Pasillo />
-              {renderAsiento(13)}{renderAsiento(17)}{renderAsiento(21)}{renderAsiento(25)}
-              {renderAsiento(29)}{renderAsiento(33)}{renderAsiento(37)}{renderAsiento(41)}{renderAsiento(45)}
-              <Pasillo />
-              <div style={{ width: 28, height: 32, borderRadius: 4, border: `1px solid ${BORDE}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <span style={{ fontSize: 8, color: TEXTO_MUTED }}>WC</span>
-              </div>
-              <Pasillo />
-              <div style={{ borderLeft: `1px dashed ${SN_AMARILLO}`, height: 32, opacity: .5, marginRight: 4 }} />
-              {renderAsiento(49)}{renderAsiento(52)}{renderAsiento(55)}{renderAsiento(58)}
-            </div>
-
-            <Separador label="pasillo" />
-
-            {/* Fila inferior abajo: 4 6 8 10 | 14 18 22 26 30 34 38 42 46 | WC | 48 51 54 57 */}
-            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-              {renderAsiento(4)}{renderAsiento(6)}{renderAsiento(8)}{renderAsiento(10)}
-              <Pasillo />
-              {renderAsiento(14)}{renderAsiento(18)}{renderAsiento(22)}{renderAsiento(26)}
-              {renderAsiento(30)}{renderAsiento(34)}{renderAsiento(38)}{renderAsiento(42)}{renderAsiento(46)}
-              <Pasillo />
-              <div style={{ width: 28, height: 32, flexShrink: 0 }} />
-              <Pasillo />
-              <div style={{ borderLeft: `1px dashed ${SN_AMARILLO}`, height: 32, opacity: .5, marginRight: 4 }} />
-              {renderAsiento(48)}{renderAsiento(51)}{renderAsiento(54)}{renderAsiento(57)}
-            </div>
-          </div>
+        {/* Las dos plantas side by side */}
+        <div style={{ display: 'flex', gap: 20, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <PlantaColectivo 
+            titulo="Planta alta" 
+            filas={FILAS_PLANTA_ALTA}
+            asientos={asientos}
+            asientoSeleccionado={asientoSel}
+            onAsientoClick={setAsientoSel}
+            onTooltipChange={setTooltip}
+          />
+          <PlantaColectivo 
+            titulo="Planta baja" 
+            filas={FILAS_PLANTA_BAJA} 
+            esCama
+            asientos={asientos}
+            asientoSeleccionado={asientoSel}
+            onAsientoClick={setAsientoSel}
+            onTooltipChange={setTooltip}
+          />
         </div>
 
         {/* Info asiento seleccionado */}
         {asientoSel && (
-          <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(45,156,184,0.1)', border: `1px solid ${SN_CELESTE}`, borderRadius: 8 }}>
+          <div style={{ marginTop: 14, padding: '9px 14px', background: 'rgba(45,156,184,0.1)', border: `1px solid ${SN_CELESTE}`, borderRadius: 8 }}>
             <p style={{ margin: 0, fontSize: 12, color: SN_CELESTE }}>
               {asientoSelObj?.nombrePasajero
                 ? `Asiento ${asientoSel} — ${asientoSelObj.nombrePasajero}`
@@ -268,15 +268,15 @@ export default function ContenidoAsientos({
       </div>
 
       {/* ===== PANEL PASAJEROS ===== */}
-      <div style={{ width: 196, background: BG_CARD, border: `0.5px solid ${BORDE}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ width: 200, background: BG_CARD, border: `0.5px solid ${BORDE}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column' }}>
         <p style={{ margin: '0 0 10px', fontWeight: 500, fontSize: 12, color: TEXTO_MUTED }}>
           Sin asiento ({pasajerosSinAsiento.length})
         </p>
 
-        <div style={{ flex: 1, overflowY: 'auto', maxHeight: 300, display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ flex: 1, overflowY: 'auto', maxHeight: 320, display: 'flex', flexDirection: 'column', gap: 5 }}>
           {pasajerosSinAsiento.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 0' }}>
-              <p style={{ fontSize: 22, margin: '0 0 4px' }}>✅</p>
+            <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <p style={{ fontSize: 24, margin: '0 0 4px' }}>✅</p>
               <p style={{ fontSize: 12, color: '#7EC55A', margin: 0 }}>Todos tienen asiento</p>
             </div>
           ) : pasajerosSinAsiento.map(p => (
@@ -291,7 +291,7 @@ export default function ContenidoAsientos({
               }}
             >
               <div style={{
-                width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
                 background: 'rgba(45,156,184,0.2)', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', fontSize: 10, fontWeight: 700, color: SN_CELESTE
               }}>
@@ -307,7 +307,6 @@ export default function ContenidoAsientos({
           ))}
         </div>
 
-        {/* Botones */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
           {asientoSel && pasajeroSel && !asientoSelObj?.nombrePasajero && (
             <button
@@ -330,13 +329,13 @@ export default function ContenidoAsientos({
               onClick={() => { setAsientoSel(null); setPasajeroSel(null) }}
               style={{ width: '100%', padding: '7px 0', borderRadius: 8, border: `1px solid ${BORDE}`, background: 'transparent', color: TEXTO_MUTED, fontSize: 11, cursor: 'pointer' }}
             >
-              Cancelar selección
+              Cancelar
             </button>
           )}
         </div>
 
         <p style={{ fontSize: 9, color: TEXTO_MUTED, textAlign: 'center', margin: '10px 0 0', lineHeight: 1.4 }}>
-          Clickeá un asiento libre, luego un pasajero para asignar
+          Clickeá un asiento libre, luego un pasajero
         </p>
       </div>
     </div>
