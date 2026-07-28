@@ -12,6 +12,7 @@ import ModalCancelarPasajero from '@/components/ModalCancelarPasajero'
 import ModalHistorialPagos from '@/components/ModalHistorialPagos'
 import BotonExportarPasajeros from '@/components/BotonExportarPasajeros'
 import BotonExportarCNRT from '@/components/BotonExportarCNRT'
+import BotonExportarPagos from '@/components/BotonExportarPagos'
 import ContenidoAsientos from '@/components/ContenidoAsientos'
 import ContenidoItinerario from '@/components/ContenidoItinerario'
 import ContenidoHoteles from '@/components/ContenidoHoteles'
@@ -75,6 +76,15 @@ type Viaje = {
   cupo_total: number
   descripcion: string | null
   precio?: number | null
+  rangos_edad?: RangoEdad[]
+}
+
+type RangoEdad = {
+  id: string
+  edad_min: number
+  edad_max: number
+  precio: number
+  descripcion: string
 }
 
 type Dia = {
@@ -192,6 +202,28 @@ type ViajeDisponible = {
 }
 
 // ============================================
+// TIPOS PARA PAGOS
+// ============================================
+
+type Pago = {
+  id: string
+  pasajero_id: string
+  viaje_id: string
+  monto: number
+  metodo_pago: string
+  numero_recibo: number
+  created_at: string
+  tipo_tarjeta?: string
+  cantidad_cuotas?: number
+  recargo_aplicado?: number
+  monto_original?: number
+  monto_final?: number
+  es_pago_grupal?: boolean
+  grupo_id?: string
+  notas?: string
+}
+
+// ============================================
 // FUNCIONES AUXILIARES
 // ============================================
 
@@ -279,6 +311,27 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     nombre: string
   } | null>(null)
 
+  // ============================================
+  // ESTADOS PARA PAGOS
+  // ============================================
+  const [pagos, setPagos] = useState<Pago[]>([])
+
+  // ============================================
+  // ESTADOS PARA EDITAR PAGOS
+  // ============================================
+  const [editandoPago, setEditandoPago] = useState<{
+  id: string
+  monto: number
+  metodo_pago: string
+  created_at: string
+  notas?: string
+  tipo_tarjeta?: string
+  cuotas?: number
+  recargo?: number
+  pasajero_id?: string
+} | null>(null)
+  const [guardandoEdicionPago, setGuardandoEdicionPago] = useState(false)
+
   // Estados para Hoja de Ruta
   const [asientos, setAsientos] = useState<Asiento[]>(generarAsientos())
   const [eventos, setEventos] = useState<Evento[]>([])
@@ -298,8 +351,6 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const [viajesDisponibles, setViajesDisponibles] = useState<ViajeDisponible[]>([])
   const [moviendoPasajero, setMoviendoPasajero] = useState(false)
   const [viajeSeleccionado, setViajeSeleccionado] = useState('')
-  const [asientoSeleccionado, setAsientoSeleccionado] = useState<number | null>(null)
-  const [asientosDestino, setAsientosDestino] = useState<Asiento[]>([])
 
   const pasajerosSinAsiento = useMemo(() => {
     const confirmados = pasajeros.filter(p => p.estado_revision === 'aprobado')
@@ -314,6 +365,27 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   }, [pasajeros, asientos])
 
   // ============================================
+  // CARGAR PAGOS
+  // ============================================
+
+  useEffect(() => {
+    const cargarPagos = async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('pagos')
+        .select('*')
+        .eq('viaje_id', viaje.id)
+        .eq('eliminado', false)
+        .order('created_at', { ascending: false })
+      
+      if (!error && data) {
+        setPagos(data)
+      }
+    }
+    cargarPagos()
+  }, [viaje.id])
+
+  // ============================================
   // FUNCIONES PARA MOVER PASAJERO
   // ============================================
 
@@ -322,8 +394,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const { data, error } = await supabase
     .from('viajes')
     .select('*')
-    .neq('id', viaje.id)  // Solo excluir el viaje actual
-    // .gte('fecha_inicio', new Date().toISOString()) // ELIMINA esta línea
+    .neq('id', viaje.id)
     .order('fecha_inicio', { ascending: true })
     
   if (!error && data) {
@@ -343,42 +414,13 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   }
 }
 
-  const cargarAsientosDestino = async (viajeId: string) => {
-    const supabase = createClient()
-    const { data: pasajerosViaje } = await supabase
-      .from('pasajeros')
-      .select('*')
-      .eq('viaje_id', viajeId)
-      .eq('estado_revision', 'aprobado')
-
-    // Generar asientos base
-    const asientosGenerados = generarAsientos()
-    
-    // Marcar los ocupados
-    if (pasajerosViaje) {
-      // Por simplicidad, asignamos números secuenciales
-      // En un caso real, tendrías una tabla de asignación de asientos
-      pasajerosViaje.forEach((p, index) => {
-        if (index < asientosGenerados.length) {
-          asientosGenerados[index].estado = 'ocupado'
-          asientosGenerados[index].pasajeroId = p.id
-          asientosGenerados[index].nombrePasajero = `${p.nombre || ''} ${p.apellido || ''}`
-        }
-      })
-    }
-    
-    setAsientosDestino(asientosGenerados)
-  }
-
- const handleMoverPasajero = async () => {
-  // Eliminar la verificación de asientoSeleccionado
+const handleMoverPasajero = async () => {
   if (!pasajeroAMover || !viajeSeleccionado) return
   
   setMoviendoPasajero(true)
   const supabase = createClient()
   
   try {
-    // 1. Obtener la reserva actual del pasajero
     const { data: reservaActual, error: errorReserva } = await supabase
       .from('pasajeros')
       .select('*')
@@ -389,7 +431,6 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       throw new Error('No se encontró la reserva del pasajero')
     }
     
-    // 2. Verificar si es titular de un grupo
     const { data: grupoInfo } = await supabase
       .from('pasajeros')
       .select('grupo_id, es_titular')
@@ -399,7 +440,6 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     const esTitularGrupo = grupoInfo?.es_titular === true
     const grupoId = grupoInfo?.grupo_id
 
-    // 3. Obtener todos los miembros del grupo
     let miembrosGrupo: Pasajero[] = []
     if (esTitularGrupo && grupoId) {
       const { data: miembros } = await supabase
@@ -410,7 +450,6 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       miembrosGrupo = miembros || []
     }
 
-    // 4. Obtener información de los viajes
     const { data: viajeOrigen } = await supabase
       .from('viajes')
       .select('*')
@@ -427,12 +466,9 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       throw new Error('Viaje no encontrado')
     }
     
-    // 5. Calcular diferencias de precio
     const precioOrigen = viajeOrigen.precio || 0
     const precioDestino = viajeDestino.precio || 0
-    const diferenciaPrecio = precioDestino - precioOrigen
 
-    // 6. Si es grupo, mover todos los miembros
     if (esTitularGrupo && miembrosGrupo.length > 0) {
       let mensajeGrupo = `✅ Grupo movido exitosamente!\n\n`
       mensajeGrupo += `Viaje original: ${viajeOrigen.destino} ($${precioOrigen.toLocaleString()})\n`
@@ -441,8 +477,15 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       mensajeGrupo += `Detalles por pasajero:\n`
 
       for (const miembro of miembrosGrupo) {
-        const montoPagadoOriginal = miembro.monto_pagado || 0
-        const deudaRestante = precioDestino - montoPagadoOriginal
+        // ✅ RECALCULAR monto_pagado desde los pagos reales
+        const { data: pagosMiembro } = await supabase
+          .from('pagos')
+          .select('monto')
+          .eq('pasajero_id', miembro.id)
+          .eq('eliminado', false)
+
+        const montoPagadoReal = pagosMiembro?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
+        const deudaRestante = precioDestino - montoPagadoReal
         const estaPagado = deudaRestante <= 0
         
         const { error: errorUpdate } = await supabase
@@ -450,6 +493,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
           .update({
             viaje_id: viajeSeleccionado,
             monto_total: precioDestino,
+            monto_pagado: montoPagadoReal,
             estado_pago: estaPagado ? 'pagado' : 'pendiente'
           })
           .eq('id', miembro.id)
@@ -457,15 +501,21 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
         if (errorUpdate) throw errorUpdate
 
         const nombre = `${miembro.nombre || ''} ${miembro.apellido || ''}`.trim() || 'Sin nombre'
-        mensajeGrupo += `  ${nombre}: Pagado $${montoPagadoOriginal.toLocaleString()} | Debe $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'} ${estaPagado ? '✅' : '⚠️'}\n`
+        mensajeGrupo += `  ${nombre}: Pagado $${montoPagadoReal.toLocaleString()} | Debe $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'} ${estaPagado ? '✅' : '⚠️'}\n`
       }
 
       alert(mensajeGrupo)
       
     } else {
-      // Mover un solo pasajero
-      const montoPagadoOriginal = pasajeroAMover.monto_pagado || 0
-      const deudaRestante = precioDestino - montoPagadoOriginal
+      // ✅ RECALCULAR monto_pagado desde los pagos reales
+      const { data: pagosPasajero } = await supabase
+        .from('pagos')
+        .select('monto')
+        .eq('pasajero_id', pasajeroAMover.id)
+        .eq('eliminado', false)
+
+      const montoPagadoReal = pagosPasajero?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
+      const deudaRestante = precioDestino - montoPagadoReal
       const estaPagado = deudaRestante <= 0
       
       const { error: errorUpdate } = await supabase
@@ -473,6 +523,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
         .update({
           viaje_id: viajeSeleccionado,
           monto_total: precioDestino,
+          monto_pagado: montoPagadoReal,
           estado_pago: estaPagado ? 'pagado' : 'pendiente'
         })
         .eq('id', pasajeroAMover.id)
@@ -486,9 +537,8 @@ Viaje original: ${viajeOrigen.destino} ($${precioOrigen.toLocaleString()})
 Viaje destino: ${viajeDestino.destino} ($${precioDestino.toLocaleString()})
 
 💰 Resumen de pago:
-Monto pagado: $${montoPagadoOriginal.toLocaleString()}
+Monto pagado real: $${montoPagadoReal.toLocaleString()}
 Precio nuevo viaje: $${precioDestino.toLocaleString()}
-Diferencia: ${diferenciaPrecio >= 0 ? '+' : '-'}$${Math.abs(diferenciaPrecio).toLocaleString()}
 Deuda restante: $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'}
 
 Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaRestante.toLocaleString()})`}
@@ -496,7 +546,7 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
       alert(mensaje)
     }
     
-    router.refresh()
+    router.replace(`/viaje/${viaje.id}`)
     setMostrarModalMover(false)
     setPasajeroAMover(null)
     setViajeSeleccionado('')
@@ -508,8 +558,6 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
     setMoviendoPasajero(false)
   }
 }
-
- 
 
   // ============================================
   // HANDLERS DE PAGOS
@@ -632,6 +680,94 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
       router.refresh()
     }
   }
+
+  // ============================================
+  // HANDLER PARA EDITAR PAGO
+  // ============================================
+
+ const handleGuardarEdicionPago = async () => {
+  if (!editandoPago) return
+  
+  setGuardandoEdicionPago(true)
+  const supabase = createClient()
+  
+  try {
+    // 1. Obtener el pago original (para saber el pasajero_id)
+    const { data: pagoOriginal, error: errorOriginal } = await supabase
+      .from('pagos')
+      .select('pasajero_id')
+      .eq('id', editandoPago.id)
+      .single()
+    
+    if (errorOriginal || !pagoOriginal) {
+      throw new Error('No se encontró el pago original')
+    }
+    
+    // 2. Actualizar el pago con el nuevo monto
+    const { error: errorUpdate } = await supabase
+      .from('pagos')
+      .update({
+        monto: editandoPago.monto,
+        metodo_pago: editandoPago.metodo_pago,
+        tipo_tarjeta: editandoPago.tipo_tarjeta || null,
+        cantidad_cuotas: editandoPago.cuotas || null,
+        recargo_aplicado: editandoPago.recargo || 0,
+        notas: editandoPago.notas || null
+      })
+      .eq('id', editandoPago.id)
+    
+    if (errorUpdate) throw errorUpdate
+    
+    // 3. ✅ RECALCULAR SUMA TOTAL DE PAGOS (desde cero)
+    const { data: todosLosPagos, error: errorPagos } = await supabase
+      .from('pagos')
+      .select('monto')
+      .eq('pasajero_id', pagoOriginal.pasajero_id)
+      .eq('eliminado', false)
+    
+    if (errorPagos) throw errorPagos
+    
+    const nuevoMontoPagado = todosLosPagos?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
+    
+    // 4. Obtener el monto_total del pasajero
+    const { data: pasajero, error: errorPasajero } = await supabase
+      .from('pasajeros')
+      .select('monto_total')
+      .eq('id', pagoOriginal.pasajero_id)
+      .single()
+    
+    if (errorPasajero || !pasajero) {
+      throw new Error('No se encontró el pasajero')
+    }
+    
+    const estaPagado = nuevoMontoPagado >= (pasajero.monto_total || 0)
+    
+    // 5. Actualizar el pasajero con el NUEVO monto pagado (suma total real)
+    const { error: errorUpdatePasajero } = await supabase
+      .from('pasajeros')
+      .update({
+        monto_pagado: nuevoMontoPagado,
+        estado_pago: estaPagado ? 'pagado' : 'pendiente'
+      })
+      .eq('id', pagoOriginal.pasajero_id)
+    
+    if (errorUpdatePasajero) throw errorUpdatePasajero
+    
+    // 6. Cerrar modal y recargar
+    setEditandoPago(null)
+    setGuardandoEdicionPago(false)
+    
+    // ✅ Recargar la página para ver los cambios
+    router.replace(`/viaje/${viaje.id}`)
+    
+    alert('✅ Pago editado correctamente')
+    
+  } catch (error) {
+    console.error('Error al editar pago:', error)
+    alert('❌ Error al editar el pago')
+    setGuardandoEdicionPago(false)
+  }
+}
 
   // ============================================
   // HANDLERS DE APROBACIÓN
@@ -948,6 +1084,15 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
             <p className="text-sm text-gray-400 mt-1">
               👥 {confirmados.length}/{viaje.cupo_total} pasajeros confirmados
             </p>
+            {viaje.rangos_edad && viaje.rangos_edad.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {viaje.rangos_edad.map((rango) => (
+                  <span key={rango.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-300">
+                    {rango.descripcion}: ${rango.precio.toLocaleString()}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex gap-3">
             <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
@@ -1286,110 +1431,122 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
             TAB: PAGOS
             ============================================ */}
         {tab === 'pagos' && (
-          <div className="rounded-xl overflow-hidden bg-gray-800/50 border border-gray-700">
-            {confirmados.length === 0 && (
-              <div className="p-6 text-center">
-                <p className="text-sm text-gray-400">No hay pasajeros confirmados todavía</p>
-              </div>
-            )}
-            {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
-              const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
-              const montoTotalGrupo = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
-              const montoPagadoGrupo = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
-              const deudaRestante = montoTotalGrupo - montoPagadoGrupo
-              const todosPagados = deudaRestante <= 0
-
-              return (
-                <div key={grupoId} className="p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <p className="text-sm font-medium text-white">{titular.nombre} {titular.apellido} y grupo</p>
-                      <p className="text-xs text-gray-400">
-                        {miembros.length} personas · ${montoPagadoGrupo.toLocaleString()} de ${montoTotalGrupo.toLocaleString()}
-                      </p>
-                      {deudaRestante > 0 && (
-                        <p className="text-xs text-yellow-500">Falta: ${deudaRestante.toLocaleString()}</p>
-                      )}
-                    </div>
-                    {todosPagados ? (
-                      <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
-                        ✅ Grupo pagado
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setPasajeroModal({
-                            id: grupoId,
-                            nombre: `${titular.nombre} ${titular.apellido} y grupo`
-                          })
-                          setPagoGrupal(true)
-                          setMiembrosGrupo(miembros.map(m => ({
-                            id: m.id,
-                            nombre: `${m.nombre || ''} ${m.apellido || ''}`.trim() || 'Sin nombre',
-                            montoTotal: m.monto_total || 0,
-                            montoPagado: m.monto_pagado || 0
-                          })))
-                        }}
-                        className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
-                      >
-                        Registrar pago grupal
-                      </button>
-                    )}
-                  </div>
+          <div>
+            {/* Header con botón de exportar */}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-white">💳 Pagos</h2>
+              <BotonExportarPagos 
+                pagos={pagos}
+                pasajeros={pasajeros}
+                viajeNombre={viaje.destino}
+              />
+            </div>
+            
+            <div className="rounded-xl overflow-hidden bg-gray-800/50 border border-gray-700">
+              {confirmados.length === 0 && (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-gray-400">No hay pasajeros confirmados todavía</p>
                 </div>
-              )
-            })}
-            {individualesConfirmados.map((p) => {
-              const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
-              const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
-              return (
-                <div key={p.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-white">{p.nombre} {p.apellido}</p>
-                    <p className="text-xs text-gray-400">
-                      ${p.monto_pagado?.toLocaleString() ?? 0} de ${p.monto_total?.toLocaleString() ?? 0}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {estaPagado ? (
-                      <>
+              )}
+              {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
+                const titular = miembros.find((m) => m.es_titular) ?? miembros[0]
+                const montoTotalGrupo = miembros.reduce((sum, m) => sum + (m.monto_total || 0), 0)
+                const montoPagadoGrupo = miembros.reduce((sum, m) => sum + (m.monto_pagado || 0), 0)
+                const deudaRestante = montoTotalGrupo - montoPagadoGrupo
+                const todosPagados = deudaRestante <= 0
+
+                return (
+                  <div key={grupoId} className="p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-white">{titular.nombre} {titular.apellido} y grupo</p>
+                        <p className="text-xs text-gray-400">
+                          {miembros.length} personas · ${montoPagadoGrupo.toLocaleString()} de ${montoTotalGrupo.toLocaleString()}
+                        </p>
+                        {deudaRestante > 0 && (
+                          <p className="text-xs text-yellow-500">Falta: ${deudaRestante.toLocaleString()}</p>
+                        )}
+                      </div>
+                      {todosPagados ? (
                         <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
-                          ✅ Pagado
+                          ✅ Grupo pagado
                         </span>
+                      ) : (
                         <button
                           onClick={() => {
-                            setDeshacerModal({
-                              id: p.id,
-                              monto: p.monto_pagado || 0,
-                              metodo_pago: 'No especificado',
-                              numero_recibo: 0,
-                              pasajero_nombre: `${p.nombre} ${p.apellido}`
+                            setPasajeroModal({
+                              id: grupoId,
+                              nombre: `${titular.nombre} ${titular.apellido} y grupo`
                             })
+                            setPagoGrupal(true)
+                            setMiembrosGrupo(miembros.map(m => ({
+                              id: m.id,
+                              nombre: `${m.nombre || ''} ${m.apellido || ''}`.trim() || 'Sin nombre',
+                              montoTotal: m.monto_total || 0,
+                              montoPagado: m.monto_pagado || 0
+                            })))
                           }}
-                          className="text-xs px-2 py-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                          className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
                         >
-                          Deshacer
+                          Registrar pago grupal
                         </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setPasajeroModal({
-                            id: p.id,
-                            nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre'
-                          })
-                          setPagoGrupal(false)
-                          setMiembrosGrupo([])
-                        }}
-                        className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
-                      >
-                        Registrar pago
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+              {individualesConfirmados.map((p) => {
+                const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
+                const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
+                return (
+                  <div key={p.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                    <div>
+                      <p className="text-sm font-medium text-white">{p.nombre} {p.apellido}</p>
+                      <p className="text-xs text-gray-400">
+                        ${p.monto_pagado?.toLocaleString() ?? 0} de ${p.monto_total?.toLocaleString() ?? 0}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {estaPagado ? (
+                        <>
+                          <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
+                            ✅ Pagado
+                          </span>
+                          <button
+                            onClick={() => {
+                              setDeshacerModal({
+                                id: p.id,
+                                monto: p.monto_pagado || 0,
+                                metodo_pago: 'No especificado',
+                                numero_recibo: 0,
+                                pasajero_nombre: `${p.nombre} ${p.apellido}`
+                              })
+                            }}
+                            className="text-xs px-2 py-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                          >
+                            Deshacer
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setPasajeroModal({
+                              id: p.id,
+                              nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre'
+                            })
+                            setPagoGrupal(false)
+                            setMiembrosGrupo([])
+                          }}
+                          className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
+                        >
+                          Registrar pago
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -1435,26 +1592,24 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
               setHistorialPagos({ pasajeroId: id, nombre })
             }}
             onMover={() => {
-      // Mover individual
-      if (!detalleModal.esGrupo) {
-        setPasajeroAMover(detalleModal.pasajero)
-        setDetalleModal(null)
-        cargarViajesDisponibles()
-        setMostrarModalMover(true)
-      }
-    }}
-    onMoverGrupo={() => {
-      // Mover grupo completo
-      if (detalleModal.esGrupo) {
-        const titular = detalleModal.miembros.find(m => m.es_titular) || detalleModal.pasajero
-        setPasajeroAMover(titular)
-        setDetalleModal(null)
-        cargarViajesDisponibles()
-        setMostrarModalMover(true)
-      }
-    }}
-  />
-)}
+              if (!detalleModal.esGrupo) {
+                setPasajeroAMover(detalleModal.pasajero)
+                setDetalleModal(null)
+                cargarViajesDisponibles()
+                setMostrarModalMover(true)
+              }
+            }}
+            onMoverGrupo={() => {
+              if (detalleModal.esGrupo) {
+                const titular = detalleModal.miembros.find(m => m.es_titular) || detalleModal.pasajero
+                setPasajeroAMover(titular)
+                setDetalleModal(null)
+                cargarViajesDisponibles()
+                setMostrarModalMover(true)
+              }
+            }}
+          />
+        )}
 
         {/* Modal Editar Pasajero */}
         {editando && (
@@ -1605,6 +1760,20 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
             pasajeroId={historialPagos.pasajeroId}
             nombrePasajero={historialPagos.nombre}
             onClose={() => setHistorialPagos(null)}
+            onEditarPago={(pago) => {
+              setEditandoPago({
+                id: pago.id,
+                monto: pago.monto,
+                metodo_pago: pago.metodo_pago || 'Efectivo',
+                created_at: pago.created_at,
+                notas: pago.notas || '',
+                tipo_tarjeta: pago.tipo_tarjeta || '',
+                cuotas: pago.cantidad_cuotas || 0,
+                recargo: pago.recargo_aplicado || 0,
+                pasajero_id: historialPagos.pasajeroId
+              })
+              setHistorialPagos(null)
+            }}
           />
         )}
 
@@ -1641,116 +1810,263 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
         )}
 
         {/* ============================================
-    MODAL MOVER PASAJERO (SIMPLIFICADO)
-    ============================================ */}
-{mostrarModalMover && pasajeroAMover && (
-  <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-    <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-700">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-          <span className="text-blue-400 text-xl">✈️</span>
-        </div>
-        <h3 className="text-xl font-bold text-white">Mover pasajero</h3>
-      </div>
+            MODAL MOVER PASAJERO (SIMPLIFICADO)
+            ============================================ */}
+        {mostrarModalMover && pasajeroAMover && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-700">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-400 text-xl">✈️</span>
+                </div>
+                <h3 className="text-xl font-bold text-white">Mover pasajero</h3>
+              </div>
 
-      <p className="text-sm text-gray-300 mb-4">
-        Mover a <strong className="text-white">{pasajeroAMover.nombre} {pasajeroAMover.apellido}</strong>
-        <br />
-        <span className="text-xs text-gray-400">Viaje actual: {viaje.destino}</span>
-      </p>
+              <p className="text-sm text-gray-300 mb-4">
+                Mover a <strong className="text-white">{pasajeroAMover.nombre} {pasajeroAMover.apellido}</strong>
+                <br />
+                <span className="text-xs text-gray-400">Viaje actual: {viaje.destino}</span>
+              </p>
 
-      {/* Viaje destino - Select simplificado */}
-      <div className="mb-4">
-        <label className="text-sm font-semibold text-gray-300 block mb-1">
-          🎯 Viaje destino:
-        </label>
-        <select
-          value={viajeSeleccionado}
-          onChange={(e) => setViajeSeleccionado(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2.5 text-white focus:border-blue-500 focus:outline-none"
-        >
-          <option value="">Seleccionar viaje...</option>
-          {viajesDisponibles.map(v => (
-            <option key={v.id} value={v.id}>
-              {v.destino} - {v.fecha_inicio} (${v.precio?.toLocaleString() || 0}) - {v.cupos_disponibles} cupos
-            </option>
-          ))}
-        </select>
-      </div>
+              {/* Viaje destino */}
+              <div className="mb-4">
+                <label className="text-sm font-semibold text-gray-300 block mb-1">
+                  🎯 Viaje destino:
+                </label>
+                <select
+                  value={viajeSeleccionado}
+                  onChange={(e) => setViajeSeleccionado(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2.5 text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">Seleccionar viaje...</option>
+                  {viajesDisponibles.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.destino} - {v.fecha_inicio} (${v.precio?.toLocaleString() || 0}) - {v.cupos_disponibles} cupos
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-      {/* Diferencia de precio */}
-      {viajeSeleccionado && (
-        <>
-          {(() => {
-            const viajeDest = viajesDisponibles.find(v => v.id === viajeSeleccionado)
-            if (!viajeDest) return null
-            const precioOrigen = viaje.precio || 0
-            const precioDestino = viajeDest.precio || 0
-            const diferencia = precioDestino - precioOrigen
-            const montoPagado = pasajeroAMover.monto_pagado || 0
-            const deudaRestante = precioDestino - montoPagado
-            
-            return (
-              <div className={`p-3 rounded-lg mb-4 ${
-                deudaRestante > 0
-                  ? 'bg-yellow-500/10 border border-yellow-500/50'
-                  : 'bg-green-500/10 border border-green-500/50'
-              }`}>
-                <p className="text-sm text-gray-300">
-                  💰 Resumen de pago:
-                </p>
-                <div className="mt-2 space-y-1 text-sm">
-                  <p className="text-gray-300">
-                    Pagado: <span className="text-green-400 font-semibold">${montoPagado.toLocaleString()}</span>
-                  </p>
-                  <p className="text-gray-300">
-                    Precio destino: <span className="text-blue-400 font-semibold">${precioDestino.toLocaleString()}</span>
-                  </p>
-                  <p className="text-gray-300">
-                    Diferencia: <span className={`font-semibold ${diferencia >= 0 ? 'text-yellow-400' : 'text-green-400'}`}>
-                      {diferencia >= 0 ? '+' : ''}{diferencia.toLocaleString()}
-                    </span>
-                  </p>
-                  <p className={`font-semibold ${deudaRestante > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
-                    {deudaRestante > 0 
-                      ? `⚠️ Debe: $${deudaRestante.toLocaleString()}`
-                      : '✅ Saldo suficiente'}
+              {/* Diferencia de precio */}
+              {viajeSeleccionado && (
+                <>
+                  {(() => {
+                    const viajeDest = viajesDisponibles.find(v => v.id === viajeSeleccionado)
+                    if (!viajeDest) return null
+                    const precioOrigen = viaje.precio || 0
+                    const precioDestino = viajeDest.precio || 0
+                    const diferencia = precioDestino - precioOrigen
+                    const montoPagado = pasajeroAMover.monto_pagado || 0
+                    const deudaRestante = precioDestino - montoPagado
+                    
+                    return (
+                      <div className={`p-3 rounded-lg mb-4 ${
+                        deudaRestante > 0
+                          ? 'bg-yellow-500/10 border border-yellow-500/50'
+                          : 'bg-green-500/10 border border-green-500/50'
+                      }`}>
+                        <p className="text-sm text-gray-300">
+                          💰 Resumen de pago:
+                        </p>
+                        <div className="mt-2 space-y-1 text-sm">
+                          <p className="text-gray-300">
+                            Pagado: <span className="text-green-400 font-semibold">${montoPagado.toLocaleString()}</span>
+                          </p>
+                          <p className="text-gray-300">
+                            Precio destino: <span className="text-blue-400 font-semibold">${precioDestino.toLocaleString()}</span>
+                          </p>
+                          <p className="text-gray-300">
+                            Diferencia: <span className={`font-semibold ${diferencia >= 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                              {diferencia >= 0 ? '+' : ''}{diferencia.toLocaleString()}
+                            </span>
+                          </p>
+                          <p className={`font-semibold ${deudaRestante > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                            {deudaRestante > 0 
+                              ? `⚠️ Debe: $${deudaRestante.toLocaleString()}`
+                              : '✅ Saldo suficiente'}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </>
+              )}
+
+              {/* Botones */}
+              <div className="flex gap-2 mt-4 pt-2 border-t border-gray-700">
+                <button
+                  onClick={() => {
+                    setMostrarModalMover(false)
+                    setPasajeroAMover(null)
+                    setViajeSeleccionado('')
+                  }}
+                  className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+                  disabled={moviendoPasajero}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleMoverPasajero}
+                  disabled={!viajeSeleccionado || moviendoPasajero}
+                  className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                    viajeSeleccionado && !moviendoPasajero
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  {moviendoPasajero ? 'Moviendo...' : 'Mover pasajero'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================
+            MODAL EDITAR PAGO
+            ============================================ */}
+        {editandoPago && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-gray-700">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-400 text-xl">✏️</span>
+                </div>
+                <h3 className="text-xl font-bold text-white">Editar pago</h3>
+              </div>
+
+              <div className="space-y-4">
+                {/* Monto */}
+                <div>
+                  <label className="text-sm font-semibold text-gray-300 block mb-1">
+                    💰 Monto <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={editandoPago.monto}
+                    onChange={(e) => setEditandoPago({
+                      ...editandoPago,
+                      monto: parseFloat(e.target.value) || 0
+                    })}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    min="0"
+                    step="100"
+                  />
+                </div>
+
+                {/* Método de pago */}
+                <div>
+                  <label className="text-sm font-semibold text-gray-300 block mb-1">
+                    💳 Método de pago <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={editandoPago.metodo_pago}
+                    onChange={(e) => setEditandoPago({
+                      ...editandoPago,
+                      metodo_pago: e.target.value
+                    })}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Tarjeta Débito">Tarjeta Débito</option>
+                    <option value="Tarjeta Crédito">Tarjeta Crédito</option>
+                    <option value="Mercado Pago">Mercado Pago</option>
+                  </select>
+                </div>
+
+                {/* Tipo de tarjeta */}
+                {editandoPago.metodo_pago === 'Tarjeta Crédito' && (
+                  <div>
+                    <label className="text-sm font-semibold text-gray-300 block mb-1">
+                      Tipo de tarjeta
+                    </label>
+                    <select
+                      value={editandoPago.tipo_tarjeta || ''}
+                      onChange={(e) => setEditandoPago({
+                        ...editandoPago,
+                        tipo_tarjeta: e.target.value
+                      })}
+                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">Seleccionar...</option>
+                      <option value="Visa">Visa</option>
+                      <option value="Mastercard">Mastercard</option>
+                      <option value="American Express">American Express</option>
+                      <option value="Naranja">Naranja</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Cuotas */}
+                {editandoPago.metodo_pago === 'Tarjeta Crédito' && (
+                  <div>
+                    <label className="text-sm font-semibold text-gray-300 block mb-1">
+                      Cuotas
+                    </label>
+                    <select
+                      value={editandoPago.cuotas || 1}
+                      onChange={(e) => setEditandoPago({
+                        ...editandoPago,
+                        cuotas: parseInt(e.target.value)
+                      })}
+                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 9, 12, 18, 24].map(n => (
+                        <option key={n} value={n}>{n} cuota{n > 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Notas */}
+                <div>
+                  <label className="text-sm font-semibold text-gray-300 block mb-1">
+                    📝 Notas (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editandoPago.notas || ''}
+                    onChange={(e) => setEditandoPago({
+                      ...editandoPago,
+                      notas: e.target.value
+                    })}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Motivo del cambio..."
+                  />
+                </div>
+
+                {/* Advertencia */}
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                  <p className="text-xs text-yellow-400">
+                    ⚠️ Al editar el monto, se actualizará automáticamente el total pagado del pasajero.
                   </p>
                 </div>
               </div>
-            )
-          })()}
-        </>
-      )}
 
-      {/* Botones */}
-      <div className="flex gap-2 mt-4 pt-2 border-t border-gray-700">
-        <button
-          onClick={() => {
-            setMostrarModalMover(false)
-            setPasajeroAMover(null)
-            setViajeSeleccionado('')
-          }}
-          className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
-          disabled={moviendoPasajero}
-        >
-          Cancelar
-        </button>
-        <button
-          onClick={handleMoverPasajero}
-          disabled={!viajeSeleccionado || moviendoPasajero}
-          className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-            viajeSeleccionado && !moviendoPasajero
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          {moviendoPasajero ? 'Moviendo...' : 'Mover pasajero'}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+              {/* Botones */}
+              <div className="flex gap-2 mt-6 pt-4 border-t border-gray-700">
+                <button
+                  onClick={() => setEditandoPago(null)}
+                  className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+                  disabled={guardandoEdicionPago}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleGuardarEdicionPago}
+                  disabled={guardandoEdicionPago || !editandoPago.monto || editandoPago.monto <= 0}
+                  className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                    !guardandoEdicionPago && editandoPago.monto > 0
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  {guardandoEdicionPago ? 'Guardando...' : '💾 Guardar cambios'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
       </div>
     </main>

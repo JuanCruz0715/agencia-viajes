@@ -4,7 +4,24 @@ import { useState } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 
-type Viaje = { id: string; destino: string; fecha_inicio: string; fecha_fin: string; precio: number }
+type Viaje = { 
+  id: string
+  destino: string
+  fecha_inicio: string
+  fecha_fin: string
+  precio: number
+  rangos_edad?: RangoEdad[]
+  seguro_incluido?: boolean
+  precio_seguro?: number
+}
+
+type RangoEdad = {
+  id: string
+  edad_min: number
+  edad_max: number
+  precio: number
+  descripcion: string
+}
 
 type Acompanante = {
   nombre: string
@@ -18,6 +35,8 @@ type Acompanante = {
   alergia: string
   dieta: string
   nacionalidad: string
+  precioCalculado?: number
+  rangoDescripcion?: string
 }
 
 const acompananteVacio: Acompanante = {
@@ -34,6 +53,23 @@ function calcularEdad(fechaNacimiento: string) {
   const mes = hoy.getMonth() - nacimiento.getMonth()
   if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) edad--
   return edad
+}
+
+// ✅ FUNCIÓN PARA CALCULAR PRECIO SEGÚN EDAD
+function calcularPrecioPorEdad(fechaNacimiento: string, viaje: Viaje): { precio: number; descripcion: string } {
+  const edad = calcularEdad(fechaNacimiento)
+  if (!edad || !viaje.rangos_edad || viaje.rangos_edad.length === 0) {
+    return { precio: viaje.precio || 0, descripcion: 'Adulto' }
+  }
+  
+  const rango = viaje.rangos_edad.find(r => 
+    edad >= r.edad_min && edad <= r.edad_max
+  )
+  
+  return { 
+    precio: rango?.precio ?? viaje.precio ?? 0,
+    descripcion: rango?.descripcion ?? 'Adulto'
+  }
 }
 
 function soloLetras(valor: string) {
@@ -94,15 +130,68 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   const [enviando, setEnviando] = useState(false)
   const [enviado, setEnviado] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [precioCalculado, setPrecioCalculado] = useState(0)
+  const [rangoDescripcion, setRangoDescripcion] = useState('')
+  const [incluirSeguro, setIncluirSeguro] = useState(false)
 
-  // Touched states para mostrar errores solo después de que el usuario tocó el campo
   const [touched, setTouched] = useState<Record<string, boolean>>({})
 
   function touch(campo: string) {
     setTouched(prev => ({ ...prev, [campo]: true }))
   }
 
-  // Errores en tiempo real
+  // Obtener viaje seleccionado
+  const viajeSeleccionado = viajes.find((v) => v.id === viajeId)
+  
+
+  const PRECIO_SEGURO = viajeSeleccionado?.precio_seguro ?? 20000
+  const viajeOfreceSeguro = viajeSeleccionado?.seguro_incluido ?? true
+
+  // Función para actualizar precio cuando cambia la fecha
+  const actualizarPrecio = (fecha: string) => {
+    if (fecha && viajeSeleccionado) {
+      const resultado = calcularPrecioPorEdad(fecha, viajeSeleccionado)
+      const precioConSeguro = resultado.precio + (incluirSeguro && viajeOfreceSeguro ? PRECIO_SEGURO : 0)
+      setPrecioCalculado(precioConSeguro)
+      setRangoDescripcion(resultado.descripcion)
+    } else {
+      setPrecioCalculado(0)
+      setRangoDescripcion('')
+    }
+  }
+
+  // Manejar cambio de fecha de nacimiento
+  const handleFechaNacimientoChange = (fecha: string) => {
+    setFechaNacimiento(fecha)
+    actualizarPrecio(fecha)
+  }
+
+  // Manejar cambio de viaje
+  const handleViajeChange = (id: string) => {
+    setViajeId(id)
+    if (fechaNacimiento) {
+      const viaje = viajes.find((v) => v.id === id)
+      if (viaje) {
+        const resultado = calcularPrecioPorEdad(fechaNacimiento, viaje)
+        const precioSeguroViaje = viaje.seguro_incluido ? (viaje.precio_seguro || 20000) : 0
+        const precioConSeguro = resultado.precio + (incluirSeguro ? precioSeguroViaje : 0)
+        setPrecioCalculado(precioConSeguro)
+        setRangoDescripcion(resultado.descripcion)
+      }
+    }
+  }
+
+  // Manejar cambio del seguro
+  const handleSeguroChange = (checked: boolean) => {
+    setIncluirSeguro(checked)
+    if (fechaNacimiento && viajeSeleccionado) {
+      const resultado = calcularPrecioPorEdad(fechaNacimiento, viajeSeleccionado)
+      const precioSeguroViaje = viajeSeleccionado.seguro_incluido ? (viajeSeleccionado.precio_seguro || 20000) : 0
+      const precioConSeguro = resultado.precio + (checked ? precioSeguroViaje : 0)
+      setPrecioCalculado(precioConSeguro)
+    }
+  }
+
   const errores = {
     viaje: !viajeId ? 'Seleccioná un viaje' : null,
     nombre: !nombre.trim() ? 'El nombre es requerido' : !soloLetras(nombre) ? 'Solo letras, sin números' : null,
@@ -131,13 +220,21 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   function actualizarAcompanante(index: number, campo: keyof Acompanante, valor: string) {
     const copia = [...acompanantes]
     copia[index] = { ...copia[index], [campo]: valor }
+    
+    // Si se actualiza la fecha de nacimiento, recalcular precio
+    if (campo === 'fechaNacimiento' && valor && viajeSeleccionado) {
+      const resultado = calcularPrecioPorEdad(valor, viajeSeleccionado)
+      const precioSeguroViaje = viajeSeleccionado.seguro_incluido ? (viajeSeleccionado.precio_seguro || 20000) : 0
+      copia[index].precioCalculado = resultado.precio + (incluirSeguro ? precioSeguroViaje : 0)
+      copia[index].rangoDescripcion = resultado.descripcion
+    }
+    
     setAcompanantes(copia)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    // Marcar todos los campos como tocados para mostrar todos los errores
     const todosTouched: Record<string, boolean> = {}
     Object.keys(errores).forEach(k => { todosTouched[k] = true })
     setTouched(todosTouched)
@@ -148,7 +245,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
       return
     }
 
-    // Validar acompañantes
     for (let i = 0; i < acompanantes.length; i++) {
       const a = acompanantes[i]
       if (!a.nombre.trim() || !a.apellido.trim()) {
@@ -166,8 +262,19 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
 
     const supabase = createClient()
     const grupoId = acompanantes.length > 0 ? crypto.randomUUID() : null
-    const viajeSeleccionado = viajes.find((v) => v.id === viajeId)
-    const precioViaje = viajeSeleccionado?.precio ?? 0
+
+    // Calcular precio del titular
+    let precioTitular = viajeSeleccionado?.precio || 0
+    let descripcionTitular = 'Adulto'
+    if (fechaNacimiento && viajeSeleccionado) {
+      const resultado = calcularPrecioPorEdad(fechaNacimiento, viajeSeleccionado)
+      precioTitular = resultado.precio
+      descripcionTitular = resultado.descripcion
+    }
+
+    // Sumar seguro si corresponde
+    const precioSeguroViaje = viajeSeleccionado?.seguro_incluido ? (viajeSeleccionado?.precio_seguro || 20000) : 0
+    const precioFinalTitular = precioTitular + (incluirSeguro && viajeOfreceSeguro ? precioSeguroViaje : 0)
 
     const titularRow = {
       viaje_id: viajeId,
@@ -192,34 +299,47 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
       sugerencias: sugerencias.trim(),
       estado_revision: 'pendiente',
       estado_pago: 'pendiente',
-      monto_total: precioViaje,
+      monto_total: precioFinalTitular,
+      seguro_incluido: incluirSeguro && viajeOfreceSeguro, // ✅ Guardar si compró seguro
     }
 
     const filas = [
       titularRow,
-      ...acompanantes.map((a) => ({
-        viaje_id: viajeId,
-        grupo_id: grupoId,
-        es_titular: false,
-        nombre: a.nombre.trim(),
-        apellido: a.apellido.trim(),
-        nombre_pasajero: `${a.nombre.trim()} ${a.apellido.trim()}`,
-        tipo_documento: a.tipoDocumento || 'DNI',
-        numero_documento: a.documento.trim(),
-        genero_pasajero: a.genero || null,
-        fecha_nacimiento: a.fechaNacimiento || null,
-        parentesco_con_titular: a.parentesco,
-        nacionalidad: a.nacionalidad.trim() || null,
-        contacto_emergencia_nombre: contactoNombre.trim(),
-        contacto_emergencia_telefono: contactoTelefono.trim(),
-        contacto_emergencia_parentesco: contactoParentesco.trim(),
-        enfermedad: a.enfermedad.trim(),
-        alergia: a.alergia.trim(),
-        dieta_especial: a.dieta.trim(),
-        estado_revision: 'pendiente',
-        estado_pago: 'pendiente',
-        monto_total: precioViaje,
-      })),
+      ...acompanantes.map((a) => {
+        // Calcular precio del acompañante
+        let precioAcomp = viajeSeleccionado?.precio || 0
+        if (a.fechaNacimiento && viajeSeleccionado) {
+          const resultado = calcularPrecioPorEdad(a.fechaNacimiento, viajeSeleccionado)
+          precioAcomp = resultado.precio
+        }
+        
+        const precioFinalAcomp = precioAcomp + (incluirSeguro && viajeOfreceSeguro ? precioSeguroViaje : 0)
+
+        return {
+          viaje_id: viajeId,
+          grupo_id: grupoId,
+          es_titular: false,
+          nombre: a.nombre.trim(),
+          apellido: a.apellido.trim(),
+          nombre_pasajero: `${a.nombre.trim()} ${a.apellido.trim()}`,
+          tipo_documento: a.tipoDocumento || 'DNI',
+          numero_documento: a.documento.trim(),
+          genero_pasajero: a.genero || null,
+          fecha_nacimiento: a.fechaNacimiento || null,
+          parentesco_con_titular: a.parentesco,
+          nacionalidad: a.nacionalidad.trim() || null,
+          contacto_emergencia_nombre: contactoNombre.trim(),
+          contacto_emergencia_telefono: contactoTelefono.trim(),
+          contacto_emergencia_parentesco: contactoParentesco.trim(),
+          enfermedad: a.enfermedad.trim(),
+          alergia: a.alergia.trim(),
+          dieta_especial: a.dieta.trim(),
+          estado_revision: 'pendiente',
+          estado_pago: 'pendiente',
+          monto_total: precioFinalAcomp,
+          seguro_incluido: incluirSeguro && viajeOfreceSeguro, // ✅ Guardar si compró seguro
+        }
+      }),
     ]
 
     const { error } = await supabase.from('pasajeros').insert(filas)
@@ -273,7 +393,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
             <select
               required
               value={viajeId}
-              onChange={(e) => { setViajeId(e.target.value); touch('viaje') }}
+              onChange={(e) => { handleViajeChange(e.target.value); touch('viaje') }}
               onBlur={() => touch('viaje')}
               className={`w-full border-2 rounded-xl p-3 text-gray-800 focus:ring-2 transition-all outline-none ${
                 !touched.viaje ? 'border-gray-200 bg-white' :
@@ -284,7 +404,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
               <option value="">Seleccioná un viaje</option>
               {viajes.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.destino} · {v.fecha_inicio} a {v.fecha_fin} · ${v.precio?.toLocaleString('es-AR')}
+                  {v.destino} · {v.fecha_inicio} a {v.fecha_fin}
                 </option>
               ))}
             </select>
@@ -381,21 +501,54 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
               required
               value={fechaNacimiento}
               max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setFechaNacimiento(e.target.value)}
+              onChange={(e) => { handleFechaNacimientoChange(e.target.value); touch('fechaNacimiento') }}
               onBlur={() => touch('fechaNacimiento')}
               className={claseInput(errores.fechaNacimiento || undefined, touched.fechaNacimiento)}
             />
             {touched.fechaNacimiento && errores.fechaNacimiento && <p className="text-xs text-red-500 mt-1">⚠ {errores.fechaNacimiento}</p>}
+            
+            {/* ✅ MOSTRAR EDAD Y PRECIO CALCULADO */}
             {fechaNacimiento && edadTitular !== null && !errores.fechaNacimiento && (
               <div className="mt-2 p-2 bg-blue-50 rounded-xl border border-blue-100">
-                <p className="text-sm text-gray-700">
-                  Edad: <span className="font-semibold text-blue-600">{edadTitular} años</span>
-                  {edadTitular < 3 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">👶 No ocupa butaca</span>}
-                  {edadTitular >= 3 && edadTitular < 18 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">🧒 Menor de edad</span>}
-                </p>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm text-gray-700">
+                    Edad: <span className="font-semibold text-blue-600">{edadTitular} años</span>
+                    {edadTitular < 3 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">👶 No ocupa butaca</span>}
+                    {edadTitular >= 3 && edadTitular < 18 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">🧒 Menor</span>}
+                  </p>
+                  <div className="text-right">
+                    {incluirSeguro && viajeOfreceSeguro && (
+                      <p className="text-xs text-gray-500">
+                        Base: ${(precioCalculado - PRECIO_SEGURO).toLocaleString()} 
+                        + Seguro: ${PRECIO_SEGURO.toLocaleString()}
+                      </p>
+                    )}
+                    <p className="text-sm font-semibold text-green-600">
+                      💰 ${precioCalculado.toLocaleString()} 
+                      <span className="text-xs font-normal text-gray-500 ml-1">({rangoDescripcion})</span>
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>
+
+          {/* ✅ SEGURO DE VIAJE */}
+          {viajeOfreceSeguro && (
+            <div className="border-t border-gray-200 pt-4">
+              <label className="flex items-center gap-3 text-sm font-medium text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={incluirSeguro}
+                  onChange={(e) => handleSeguroChange(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 border-2 border-gray-300 rounded focus:ring-2 focus:ring-blue-200 cursor-pointer"
+                />
+                <span>🛡️ Agregar seguro de viaje</span>
+                <span className="text-sm font-semibold text-blue-600">+${PRECIO_SEGURO.toLocaleString()}</span>
+              </label>
+              <p className="text-xs text-gray-400 mt-1 ml-8">Cobertura médica, cancelación y asistencia en viaje</p>
+            </div>
+          )}
 
           {/* GÉNERO Y NACIONALIDAD */}
           <div className="grid grid-cols-2 gap-3">
@@ -506,6 +659,8 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
               <p className="text-xs text-gray-500 mb-3">El viaje y el contacto de emergencia son los mismos para todo el grupo.</p>
               {acompanantes.map((a, i) => {
                 const edadAcomp = calcularEdad(a.fechaNacimiento)
+                const precioAcomp = a.precioCalculado ?? 0
+                const rangoAcomp = a.rangoDescripcion ?? ''
                 return (
                   <div key={i} className="bg-white rounded-xl p-4 mb-3 border border-gray-200">
                     <div className="flex justify-between items-center mb-3">
@@ -542,7 +697,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                         value={a.documento}
                         onChange={(e) => actualizarAcompanante(i, 'documento', e.target.value.replace(/\D/g, ''))}
                         maxLength={8}
-                        className="text-center border-2 border-gray-200 rounded-xl p-2.0 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 transition-all outline-none"
+                        className="flex-1 border-2 border-gray-200 rounded-xl p-2.5 bg-gray-50 text-gray-800 placeholder-gray-400 focus:border-blue-500 transition-all outline-none"
                       />
                     </div>
                     <select
@@ -585,11 +740,27 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                     </div>
                     {a.fechaNacimiento && edadAcomp !== null && (
                       <div className="mt-1 mb-3 p-2 bg-gray-50 rounded-lg border border-gray-100">
-                        <p className="text-xs text-gray-600">
-                          Edad: <span className="font-medium text-blue-600">{edadAcomp} años</span>
-                          {edadAcomp < 3 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">👶 No ocupa butaca</span>}
-                          {edadAcomp >= 3 && edadAcomp < 18 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 rounded-full">🧒 Menor</span>}
-                        </p>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <p className="text-xs text-gray-600">
+                            Edad: <span className="font-medium text-blue-600">{edadAcomp} años</span>
+                            {edadAcomp < 3 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">👶 No ocupa butaca</span>}
+                            {edadAcomp >= 3 && edadAcomp < 18 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 rounded-full">🧒 Menor</span>}
+                          </p>
+                          {viajeSeleccionado && a.fechaNacimiento && (
+                            <div className="text-right">
+                              {incluirSeguro && viajeOfreceSeguro && (
+                                <p className="text-xs text-gray-500">
+                                  Base: ${(a.precioCalculado ?? 0 - PRECIO_SEGURO).toLocaleString()} 
+                                  + Seguro: ${PRECIO_SEGURO.toLocaleString()}
+                                </p>
+                              )}
+                              <p className="text-xs font-semibold text-green-600">
+                                💰 ${(a.precioCalculado ?? 0).toLocaleString()}
+                                <span className="text-xs font-normal text-gray-500 ml-1">({a.rangoDescripcion || ''})</span>
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                     <input
@@ -632,7 +803,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
           <button
             type="submit"
             disabled={enviando}
-            className="w-full rounded-xl p-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50 hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg hover:shadow-xl"
+            className="w-full rounded-xl p-3.5 bg-linear-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50 hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg hover:shadow-xl"
           >
             {enviando ? (
               <span className="flex items-center justify-center gap-2">

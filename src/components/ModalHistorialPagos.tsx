@@ -7,197 +7,174 @@ type Pago = {
   id: string
   monto: number
   metodo_pago: string
+  numero_recibo: number
+  created_at: string
   tipo_tarjeta?: string
   cantidad_cuotas?: number
   recargo_aplicado?: number
   monto_original?: number
   monto_final?: number
-  numero_recibo: number
-  created_at: string
-  es_pago_grupal: boolean
-  grupo_id: string | null
-  eliminado: boolean
+  es_pago_grupal?: boolean
+  grupo_id?: string
+  notas?: string
 }
 
 type Props = {
   pasajeroId: string
   nombrePasajero: string
   onClose: () => void
+  onEditarPago?: (pago: Pago) => void
 }
 
-export default function ModalHistorialPagos({ pasajeroId, nombrePasajero, onClose }: Props) {
+export default function ModalHistorialPagos({
+  pasajeroId,
+  nombrePasajero,
+  onClose,
+  onEditarPago
+}: Props) {
   const [pagos, setPagos] = useState<Pago[]>([])
   const [cargando, setCargando] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const cargarPagos = async () => {
-      setCargando(true)
-      const supabase = createClient()
+      try {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from('pagos')
+          .select('*')
+          .eq('pasajero_id', pasajeroId)
+          .eq('eliminado', false)
+          .order('created_at', { ascending: false })
 
-      // Obtener todos los pagos del pasajero (no eliminados)
-      const { data, error } = await supabase
-        .from('pagos')
-        .select('*')
-        .eq('pasajero_id', pasajeroId)
-        .eq('eliminado', false)
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        setError(error.message)
+        if (!error && data) {
+          setPagos(data)
+        }
+      } catch (error) {
+        console.error('Error al cargar pagos:', error)
+      } finally {
         setCargando(false)
-        return
       }
-
-      setPagos(data || [])
-      setCargando(false)
     }
 
     cargarPagos()
   }, [pasajeroId])
 
-  // Formatear fecha
-  const formatearFecha = (fecha: string) => {
-    return new Date(fecha).toLocaleDateString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+  const totalPagado = pagos.reduce((sum, p) => sum + (p.monto || 0), 0)
 
-  // Obtener método de pago con detalles
-  const getMetodoPagoTexto = (pago: Pago) => {
-    let texto = pago.metodo_pago
-
-    if (pago.metodo_pago === 'Tarjeta') {
-      const tipo = pago.tipo_tarjeta === 'debito' ? 'Débito' : 'Crédito'
-      texto = `${tipo}`
-      if (pago.cantidad_cuotas && pago.cantidad_cuotas > 1) {
-        texto += ` - ${pago.cantidad_cuotas} cuotas`
-        if (pago.recargo_aplicado && pago.recargo_aplicado > 0) {
-          texto += ` (${Math.round(pago.recargo_aplicado * 100)}% recargo)`
-        }
-      } else if (pago.tipo_tarjeta === 'debito') {
-        texto += ' - Pago único'
-      }
+  // ✅ Función para abrir el recibo usando el ID del pago
+  const abrirRecibo = (pagoId: string) => {
+    if (pagoId) {
+      window.open(`/recibo/${pagoId}`, '_blank')
+    } else {
+      alert('Este pago no tiene un recibo asociado')
     }
-
-    return texto
   }
-
-  // Calcular totales
-  const totalPagado = pagos.reduce((sum, p) => sum + (p.monto_final || p.monto || 0), 0)
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[70]">
-      <div className="bg-white rounded-xl shadow-2xl p-6 max-w-3xl w-full max-h-[90vh] flex flex-col">
-        {/* HEADER */}
-        <div className="flex items-center justify-between border-b pb-4 flex-shrink-0">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+      <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] flex flex-col border border-gray-700">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-xl font-bold text-gray-900">📋 Historial de pagos</h3>
-            <p className="text-sm text-gray-500">{nombrePasajero}</p>
+            <h3 className="text-xl font-bold text-white">📋 Historial de pagos</h3>
+            <p className="text-sm text-gray-400">{nombrePasajero}</p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 hover:text-white transition-colors"
           >
             ✕
           </button>
         </div>
 
-        {/* RESUMEN */}
-        <div className="grid grid-cols-3 gap-3 py-3 border-b flex-shrink-0">
-          <div className="text-center">
-            <p className="text-xs text-gray-500">Total pagos</p>
-            <p className="text-lg font-bold text-gray-900">{pagos.length}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-gray-500">Total abonado</p>
-            <p className="text-lg font-bold text-blue-600">${totalPagado.toLocaleString()}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-gray-500">Último pago</p>
-            <p className="text-lg font-bold text-gray-900">
-              {pagos.length > 0 ? formatearFecha(pagos[0].created_at) : '—'}
-            </p>
-          </div>
+        {/* Resumen */}
+        <div className="bg-gray-800/50 rounded-lg p-3 mb-4 border border-gray-700">
+          <p className="text-sm text-gray-400">Total pagado</p>
+          <p className="text-2xl font-bold text-green-400">${totalPagado.toLocaleString()}</p>
+          <p className="text-xs text-gray-500">{pagos.length} {pagos.length === 1 ? 'pago registrado' : 'pagos registrados'}</p>
         </div>
 
-        {/* LISTA DE PAGOS */}
-        <div className="flex-1 overflow-y-auto py-3 space-y-2">
+        {/* Lista de pagos */}
+        <div className="flex-1 overflow-y-auto space-y-2">
           {cargando ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            </div>
-          ) : error ? (
-            <div className="text-center py-8 text-red-500">
-              <p>Error al cargar los pagos</p>
-              <p className="text-sm">{error}</p>
+            <div className="text-center py-8 text-gray-400">
+              <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-gray-400 border-t-transparent" />
+              <p className="mt-2">Cargando pagos...</p>
             </div>
           ) : pagos.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <p className="text-4xl mb-2">💳</p>
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-4xl mb-2">💰</p>
               <p>No hay pagos registrados</p>
             </div>
           ) : (
             pagos.map((pago) => (
               <div
                 key={pago.id}
-                className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
+                className="bg-gray-800/30 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-colors"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <span className="text-blue-600 text-sm font-bold">$</span>
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        ${(pago.monto_final || pago.monto || 0).toLocaleString()}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <span>{getMetodoPagoTexto(pago)}</span>
-                        {pago.es_pago_grupal && (
-                          <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
-                            Grupal
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-400">{formatearFecha(pago.created_at)}</p>
-                    <a
-                      href={`/recibo/${pago.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      Recibo N°{pago.numero_recibo}
-                    </a>
-                  </div>
-                </div>
-                {pago.tipo_tarjeta === 'credito' && pago.cantidad_cuotas && pago.cantidad_cuotas > 1 && (
-                  <div className="mt-1 text-xs text-gray-400">
-                    {pago.cantidad_cuotas} cuotas de ${((pago.monto_final || pago.monto || 0) / pago.cantidad_cuotas).toFixed(2)}
-                    {pago.recargo_aplicado && pago.recargo_aplicado > 0 && (
-                      <span className="ml-1 text-amber-600">
-                        ({Math.round(pago.recargo_aplicado * 100)}% recargo)
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-white">
+                        ${pago.monto.toLocaleString()}
                       </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                        {pago.metodo_pago || 'No especificado'}
+                      </span>
+                      {pago.tipo_tarjeta && (
+                        <span className="text-xs text-gray-400">
+                          {pago.tipo_tarjeta} {pago.cantidad_cuotas ? `· ${pago.cantidad_cuotas} cuotas` : ''}
+                        </span>
+                      )}
+                      {pago.recargo_aplicado && pago.recargo_aplicado > 0 && (
+                        <span className="text-xs text-yellow-400">
+                          +${pago.recargo_aplicado} recargo
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                      <span>📅 {new Date(pago.created_at).toLocaleDateString('es-AR')}</span>
+                      <span>🎫 Nº {pago.numero_recibo || '---'}</span>
+                      {pago.notas && (
+                        <span className="text-yellow-400">📝 {pago.notas}</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* ✅ Botones de acción */}
+                  <div className="flex gap-1 flex-shrink-0">
+                    {/* Botón Ver Recibo - usando el ID del pago */}
+                    <button
+                      onClick={() => abrirRecibo(pago.id)}
+                      className="text-green-400 hover:text-green-300 text-xs px-2 py-1 rounded hover:bg-green-500/10 transition-colors"
+                      title="Ver recibo"
+                    >
+                      📄 Recibo
+                    </button>
+                    
+                    {/* Botón Editar */}
+                    {onEditarPago && (
+                      <button
+                        onClick={() => onEditarPago(pago)}
+                        className="text-blue-400 hover:text-blue-300 text-xs px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
+                        title="Editar pago"
+                      >
+                        ✏️ Editar
+                      </button>
                     )}
                   </div>
-                )}
+                </div>
               </div>
             ))
           )}
         </div>
 
-        {/* BOTON CERRAR */}
-        <div className="border-t pt-4 flex justify-end flex-shrink-0">
+        {/* Footer */}
+        <div className="mt-4 pt-4 border-t border-gray-700 flex justify-end">
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-medium text-gray-700 transition-colors"
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
           >
             Cerrar
           </button>
