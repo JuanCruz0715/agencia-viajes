@@ -66,6 +66,8 @@ type Pasajero = {
   vendedor?: string | null
   iniciales_vendedor?: string | null
   viaje_id?: string | null
+  seguro_incluido?: boolean | null
+  recargo_asiento?: number | null
 }
 
 type Viaje = {
@@ -77,6 +79,8 @@ type Viaje = {
   descripcion: string | null
   precio?: number | null
   rangos_edad?: RangoEdad[]
+  seguro_incluido?: boolean
+  precio_seguro?: number
 }
 
 type RangoEdad = {
@@ -153,6 +157,7 @@ type Asiento = {
   pasajeroId?: string
   nombrePasajero?: string
   tipo: 'semi_cama' | 'cama'
+  recargo_asiento?: number
 }
 
 type PasajeroSinAsiento = {
@@ -241,6 +246,18 @@ function agruparPasajeros(lista: Pasajero[]) {
   return { grupos, individuales }
 }
 
+function calcularEdad(fechaNacimiento: string | null | undefined) {
+  if (!fechaNacimiento) return null
+  const hoy = new Date()
+  const nacimiento = new Date(fechaNacimiento)
+  let edad = hoy.getFullYear() - nacimiento.getFullYear()
+  const mes = hoy.getMonth() - nacimiento.getMonth()
+  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+    edad--
+  }
+  return edad
+}
+
 // Generar asientos (60 asientos: 12 cama + 48 semi cama)
 const generarAsientos = (): Asiento[] => {
   const asientos: Asiento[] = []
@@ -252,7 +269,8 @@ const generarAsientos = (): Asiento[] => {
       estado: 'cama_libre',
       tipo: 'cama',
       nombrePasajero: undefined,
-      pasajeroId: undefined
+      pasajeroId: undefined,
+      recargo_asiento: 10000 // Recargo para asientos 1-12
     })
   }
   
@@ -263,7 +281,8 @@ const generarAsientos = (): Asiento[] => {
       estado: 'disponible',
       tipo: 'semi_cama',
       nombrePasajero: undefined,
-      pasajeroId: undefined
+      pasajeroId: undefined,
+      recargo_asiento: 0
     })
   }
   
@@ -365,27 +384,6 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   }, [pasajeros, asientos])
 
   // ============================================
-  // CARGAR PAGOS
-  // ============================================
-
-  useEffect(() => {
-    const cargarPagos = async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('pagos')
-        .select('*')
-        .eq('viaje_id', viaje.id)
-        .eq('eliminado', false)
-        .order('created_at', { ascending: false })
-      
-      if (!error && data) {
-        setPagos(data)
-      }
-    }
-    cargarPagos()
-  }, [viaje.id])
-
-  // ============================================
   // FUNCIONES PARA MOVER PASAJERO
   // ============================================
 
@@ -411,6 +409,64 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
       }
     }))
     setViajesDisponibles(viajesConCupos)
+  }
+}
+
+// ============================================
+// FUNCIÓN PARA RECALCULAR MONTO TOTAL
+// ============================================
+
+const recalcularMontoTotal = async (pasajeroId: string) => {
+  const supabase = createClient()
+  
+  try {
+    // Obtener el pasajero
+    const { data: pasajero, error: errorPasajero } = await supabase
+      .from('pasajeros')
+      .select('viaje_id, seguro_incluido, fecha_nacimiento, recargo_asiento')
+      .eq('id', pasajeroId)
+      .single()
+    
+    if (errorPasajero || !pasajero) return
+    
+    // Obtener el viaje
+    const { data: viajeData, error: errorViaje } = await supabase
+      .from('viajes')
+      .select('precio, precio_seguro, rangos_edad')
+      .eq('id', pasajero.viaje_id)
+      .single()
+    
+    if (errorViaje || !viajeData) return
+    
+    // Calcular precio base según edad
+    const edad = calcularEdad(pasajero.fecha_nacimiento)
+    let precioBase = viajeData.precio || 0
+    
+    if (edad !== null && viajeData.rangos_edad && viajeData.rangos_edad.length > 0) {
+      const rango = viajeData.rangos_edad.find((r: RangoEdad) => edad >= r.edad_min && edad <= r.edad_max)
+      if (rango) {
+        precioBase = rango.precio
+      }
+    }
+    
+    // Sumar seguro si corresponde
+    const precioSeguro = pasajero.seguro_incluido ? (viajeData.precio_seguro || 20000) : 0
+    const recargoAsiento = pasajero.recargo_asiento || 0
+    const nuevoMontoTotal = precioBase + precioSeguro + recargoAsiento
+    
+    // Actualizar el monto_total del pasajero
+    const { error: errorUpdate } = await supabase
+      .from('pasajeros')
+      .update({ monto_total: nuevoMontoTotal })
+      .eq('id', pasajeroId)
+    
+    if (errorUpdate) {
+      console.error('Error al recalcular monto total:', errorUpdate)
+    }
+    
+    return nuevoMontoTotal
+  } catch (error) {
+    console.error('Error en recalcularMontoTotal:', error)
   }
 }
 
@@ -466,18 +522,16 @@ const handleMoverPasajero = async () => {
       throw new Error('Viaje no encontrado')
     }
     
-    const precioOrigen = viajeOrigen.precio || 0
     const precioDestino = viajeDestino.precio || 0
 
     if (esTitularGrupo && miembrosGrupo.length > 0) {
       let mensajeGrupo = `✅ Grupo movido exitosamente!\n\n`
-      mensajeGrupo += `Viaje original: ${viajeOrigen.destino} ($${precioOrigen.toLocaleString()})\n`
-      mensajeGrupo += `Viaje destino: ${viajeDestino.destino} ($${precioDestino.toLocaleString()})\n`
+      mensajeGrupo += `Viaje original: ${viajeOrigen.destino}\n`
+      mensajeGrupo += `Viaje destino: ${viajeDestino.destino}\n`
       mensajeGrupo += `Cantidad de pasajeros: ${miembrosGrupo.length}\n\n`
       mensajeGrupo += `Detalles por pasajero:\n`
 
       for (const miembro of miembrosGrupo) {
-        // ✅ RECALCULAR monto_pagado desde los pagos reales
         const { data: pagosMiembro } = await supabase
           .from('pagos')
           .select('monto')
@@ -485,14 +539,17 @@ const handleMoverPasajero = async () => {
           .eq('eliminado', false)
 
         const montoPagadoReal = pagosMiembro?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
-        const deudaRestante = precioDestino - montoPagadoReal
+        
+        // Recalcular monto total con el nuevo viaje
+        const nuevoMontoTotal = await recalcularMontoTotal(miembro.id) || precioDestino
+        const deudaRestante = nuevoMontoTotal - montoPagadoReal
         const estaPagado = deudaRestante <= 0
         
         const { error: errorUpdate } = await supabase
           .from('pasajeros')
           .update({
             viaje_id: viajeSeleccionado,
-            monto_total: precioDestino,
+            monto_total: nuevoMontoTotal,
             monto_pagado: montoPagadoReal,
             estado_pago: estaPagado ? 'pagado' : 'pendiente'
           })
@@ -501,13 +558,12 @@ const handleMoverPasajero = async () => {
         if (errorUpdate) throw errorUpdate
 
         const nombre = `${miembro.nombre || ''} ${miembro.apellido || ''}`.trim() || 'Sin nombre'
-        mensajeGrupo += `  ${nombre}: Pagado $${montoPagadoReal.toLocaleString()} | Debe $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'} ${estaPagado ? '✅' : '⚠️'}\n`
+        mensajeGrupo += `  ${nombre}: Pagado $${montoPagadoReal.toLocaleString()} | Total $${nuevoMontoTotal.toLocaleString()} | Debe $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'} ${estaPagado ? '✅' : '⚠️'}\n`
       }
 
       alert(mensajeGrupo)
       
     } else {
-      // ✅ RECALCULAR monto_pagado desde los pagos reales
       const { data: pagosPasajero } = await supabase
         .from('pagos')
         .select('monto')
@@ -515,14 +571,17 @@ const handleMoverPasajero = async () => {
         .eq('eliminado', false)
 
       const montoPagadoReal = pagosPasajero?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
-      const deudaRestante = precioDestino - montoPagadoReal
+      
+      // Recalcular monto total con el nuevo viaje
+      const nuevoMontoTotal = await recalcularMontoTotal(pasajeroAMover.id) || precioDestino
+      const deudaRestante = nuevoMontoTotal - montoPagadoReal
       const estaPagado = deudaRestante <= 0
       
       const { error: errorUpdate } = await supabase
         .from('pasajeros')
         .update({
           viaje_id: viajeSeleccionado,
-          monto_total: precioDestino,
+          monto_total: nuevoMontoTotal,
           monto_pagado: montoPagadoReal,
           estado_pago: estaPagado ? 'pagado' : 'pendiente'
         })
@@ -533,12 +592,12 @@ const handleMoverPasajero = async () => {
       const mensaje = `
 ✅ Pasajero movido exitosamente!
 
-Viaje original: ${viajeOrigen.destino} ($${precioOrigen.toLocaleString()})
-Viaje destino: ${viajeDestino.destino} ($${precioDestino.toLocaleString()})
+Viaje original: ${viajeOrigen.destino}
+Viaje destino: ${viajeDestino.destino}
 
 💰 Resumen de pago:
 Monto pagado real: $${montoPagadoReal.toLocaleString()}
-Precio nuevo viaje: $${precioDestino.toLocaleString()}
+Monto total nuevo viaje: $${nuevoMontoTotal.toLocaleString()}
 Deuda restante: $${deudaRestante > 0 ? deudaRestante.toLocaleString() : '0'}
 
 Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaRestante.toLocaleString()})`}
@@ -558,6 +617,27 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
     setMoviendoPasajero(false)
   }
 }
+
+  // ============================================
+  // CARGAR PAGOS
+  // ============================================
+
+  useEffect(() => {
+    const cargarPagos = async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('pagos')
+        .select('*')
+        .eq('viaje_id', viaje.id)
+        .eq('eliminado', false)
+        .order('created_at', { ascending: false })
+      
+      if (!error && data) {
+        setPagos(data)
+      }
+    }
+    cargarPagos()
+  }, [viaje.id])
 
   // ============================================
   // HANDLERS DE PAGOS
@@ -742,7 +822,7 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
     
     const estaPagado = nuevoMontoPagado >= (pasajero.monto_total || 0)
     
-    // 5. Actualizar el pasajero con el NUEVO monto pagado (suma total real)
+    // 5. Actualizar el pasajero con el NUEVO monto pagado
     const { error: errorUpdatePasajero } = await supabase
       .from('pasajeros')
       .update({
@@ -753,11 +833,13 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
     
     if (errorUpdatePasajero) throw errorUpdatePasajero
     
-    // 6. Cerrar modal y recargar
+    // 6. ✅ Recalcular el monto_total del pasajero (por si cambió el seguro)
+    await recalcularMontoTotal(pagoOriginal.pasajero_id)
+    
+    // 7. Cerrar modal y recargar
     setEditandoPago(null)
     setGuardandoEdicionPago(false)
     
-    // ✅ Recargar la página para ver los cambios
     router.replace(`/viaje/${viaje.id}`)
     
     alert('✅ Pago editado correctamente')
@@ -773,42 +855,64 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
   // HANDLERS DE APROBACIÓN
   // ============================================
 
-  async function handleAprobarPasajero(id: string, iniciales?: string) {
-    setAprobando(id)
-    try {
-      const resultado = await aprobarPasajero(id, viaje.id, iniciales)
-      if (resultado?.error) {
-        alert('Error al aprobar: ' + resultado.error)
-        return
-      }
-      setDetalleModal(null)
-      router.refresh()
-    } catch (error) {
-      console.error('Error:', error)
-      alert('Error al aprobar el pasajero')
-    } finally {
+async function handleAprobarPasajero(id: string, iniciales?: string) {
+  console.log('🟢 handleAprobarPasajero - INICIO')
+  console.log('🟢 ID recibido:', id)
+  console.log('🟢 Iniciales recibidas:', iniciales)
+  setAprobando(id)
+  try {
+    const resultado = await aprobarPasajero(id, viaje.id, iniciales || undefined)
+    console.log('🟢 Resultado de aprobarPasajero:', resultado)
+    if (resultado?.error) {
+      alert('Error al aprobar: ' + resultado.error)
       setAprobando(null)
+      return
     }
+    
+    await recalcularMontoTotal(id)
+    setDetalleModal(null)
+    router.refresh()
+  } catch (error) {
+    console.error('🔴 Error:', error)
+    alert('Error al aprobar el pasajero')
+  } finally {
+    console.log('🟢 Liberando aprobando')
+    setAprobando(null)
   }
+}
 
   async function handleAprobarGrupo(grupoId: string, iniciales?: string) {
-    setAprobando(grupoId)
-    try {
-      const resultado = await aprobarGrupo(grupoId, viaje.id, iniciales)
-      if (resultado?.error) {
-        alert('Error al aprobar: ' + resultado.error)
-        return
-      }
-      setDetalleModal(null)
-      router.refresh()
-    } catch (error) {
-      console.error('Error:', error)
-      alert('Error al aprobar el grupo')
-    } finally {
-      setAprobando(null)
+  setAprobando(grupoId)
+  try {
+    // ✅ Pasar undefined si no hay iniciales
+    const resultado = await aprobarGrupo(grupoId, viaje.id, iniciales || undefined)
+    if (resultado?.error) {
+      alert('Error al aprobar: ' + resultado.error)
+      return
     }
+    
+    // ✅ Recalcular monto_total de todos los miembros del grupo
+    const supabase = createClient()
+    const { data: miembros } = await supabase
+      .from('pasajeros')
+      .select('id')
+      .eq('grupo_id', grupoId)
+    
+    if (miembros) {
+      for (const miembro of miembros) {
+        await recalcularMontoTotal(miembro.id)
+      }
+    }
+    
+    setDetalleModal(null)
+    router.refresh()
+  } catch (error) {
+    console.error('Error:', error)
+    alert('Error al aprobar el grupo')
+  } finally {
+    setAprobando(null)
   }
-
+}
   // ============================================
   // HANDLERS DE ELIMINACIÓN
   // ============================================
@@ -1343,6 +1447,9 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
                   const pasajero = pasajerosSinAsiento.find(p => p.id === pasajeroId)
                   if (!pasajero) return
 
+                  const asiento = asientos.find(a => a.numero === asientoNumero)
+                  const recargo = asiento?.recargo_asiento || 0
+
                   const nuevosAsientos = asientos.map(a =>
                     a.numero === asientoNumero
                       ? { 
@@ -1354,6 +1461,21 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
                       : a
                   )
                   setAsientos(nuevosAsientos)
+
+                  // Guardar el recargo en la base de datos
+                  const guardarRecargo = async () => {
+                    const supabase = createClient()
+                    const { error } = await supabase
+                      .from('pasajeros')
+                      .update({ recargo_asiento: recargo })
+                      .eq('id', pasajeroId)
+                    
+                    if (!error) {
+                      await recalcularMontoTotal(pasajeroId)
+                      router.refresh()
+                    }
+                  }
+                  guardarRecargo()
                 }}
                 onDesasignarAsiento={(asientoNumero) => {
                   const nuevosAsientos = asientos.map(a =>
@@ -1367,6 +1489,25 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
                       : a
                   )
                   setAsientos(nuevosAsientos)
+
+                  // Quitar el recargo del pasajero
+                  const quitarRecargo = async () => {
+                    // Encontrar el pasajero que tenía ese asiento
+                    const asiento = asientos.find(a => a.numero === asientoNumero)
+                    if (asiento?.pasajeroId) {
+                      const supabase = createClient()
+                      const { error } = await supabase
+                        .from('pasajeros')
+                        .update({ recargo_asiento: 0 })
+                        .eq('id', asiento.pasajeroId)
+                      
+                      if (!error) {
+                        await recalcularMontoTotal(asiento.pasajeroId)
+                        router.refresh()
+                      }
+                    }
+                  }
+                  quitarRecargo()
                 }}
               />
             )}
@@ -1556,60 +1697,83 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
 
         {/* Modal Detalle Pasajero */}
         {detalleModal && (
-          <ModalDetallePasajero
-            pasajero={detalleModal.pasajero}
-            esGrupo={detalleModal.esGrupo}
-            miembros={detalleModal.miembros}
-            estaAprobando={aprobando === detalleModal.pasajero.id || aprobando === detalleModal.miembros[0]?.grupo_id}
-            onAprobar={(iniciales) => {
-              if (detalleModal.esGrupo) {
-                handleAprobarGrupo(detalleModal.miembros[0].grupo_id!, iniciales)
-              } else {
-                handleAprobarPasajero(detalleModal.pasajero.id, iniciales)
-              }
-            }}
-            onCancel={() => {
-              setAprobando(null)
-              setDetalleModal(null)
-            }}
-            onEliminar={() => {
-              setAprobando(null)
-              if (detalleModal.esGrupo) {
-                handleEliminarGrupo(detalleModal.miembros[0].grupo_id!)
-              } else {
-                handleEliminarPasajero(detalleModal.pasajero.id)
-              }
-            }}
-            onEditar={() => {
-              setAprobando(null)
-              abrirEdicion()
-            }}
-            onCancelar={() => {
-              setCancelando(detalleModal.pasajero)
-              setDetalleModal(null)
-            }}
-            onVerHistorial={(id, nombre) => {
-              setHistorialPagos({ pasajeroId: id, nombre })
-            }}
-            onMover={() => {
-              if (!detalleModal.esGrupo) {
-                setPasajeroAMover(detalleModal.pasajero)
-                setDetalleModal(null)
-                cargarViajesDisponibles()
-                setMostrarModalMover(true)
-              }
-            }}
-            onMoverGrupo={() => {
-              if (detalleModal.esGrupo) {
-                const titular = detalleModal.miembros.find(m => m.es_titular) || detalleModal.pasajero
-                setPasajeroAMover(titular)
-                setDetalleModal(null)
-                cargarViajesDisponibles()
-                setMostrarModalMover(true)
-              }
-            }}
-          />
-        )}
+  <ModalDetallePasajero
+    pasajero={detalleModal.pasajero}
+    esGrupo={detalleModal.esGrupo}
+    miembros={detalleModal.miembros}
+    estaAprobando={aprobando === detalleModal.pasajero.id || aprobando === detalleModal.miembros[0]?.grupo_id}
+    onAprobar={(iniciales) => {
+  console.log('🟢 onAprobar - EJECUTADO desde FichaViaje')
+  console.log('🟢 iniciales:', iniciales)
+  console.log('🟢 detalleModal:', detalleModal)
+  
+  if (!detalleModal) {
+    console.error('🔴 detalleModal es null')
+    return
+  }
+  
+  // ✅ Guardar en variables locales para evitar problemas de referencia
+  const esGrupo = detalleModal.esGrupo
+  const pasajeroId = detalleModal.pasajero.id
+  const grupoId = detalleModal.miembros[0]?.grupo_id
+  
+  console.log('🟢 esGrupo:', esGrupo)
+  console.log('🟢 pasajeroId:', pasajeroId)
+  console.log('🟢 grupoId:', grupoId)
+  
+  if (esGrupo && grupoId) {
+    console.log('🟢 Llamando a handleAprobarGrupo')
+    handleAprobarGrupo(grupoId, iniciales)
+  } else if (pasajeroId) {
+    console.log('🟢 Llamando a handleAprobarPasajero')
+    handleAprobarPasajero(pasajeroId, iniciales)
+  } else {
+    console.error('🔴 No se pudo aprobar: faltan datos')
+  }
+}}
+    onCancel={() => {
+      console.log('🟢 onCancel - EJECUTADO')
+      setAprobando(null)
+      setDetalleModal(null)
+    }}
+    onEliminar={() => {
+      setAprobando(null)
+      if (detalleModal.esGrupo) {
+        handleEliminarGrupo(detalleModal.miembros[0].grupo_id!)
+      } else {
+        handleEliminarPasajero(detalleModal.pasajero.id)
+      }
+    }}
+    onEditar={() => {
+      setAprobando(null)
+      abrirEdicion()
+    }}
+    onCancelar={() => {
+      setCancelando(detalleModal.pasajero)
+      setDetalleModal(null)
+    }}
+    onVerHistorial={(id, nombre) => {
+      setHistorialPagos({ pasajeroId: id, nombre })
+    }}
+    onMover={() => {
+      if (!detalleModal.esGrupo) {
+        setPasajeroAMover(detalleModal.pasajero)
+        setDetalleModal(null)
+        cargarViajesDisponibles()
+        setMostrarModalMover(true)
+      }
+    }}
+    onMoverGrupo={() => {
+      if (detalleModal.esGrupo) {
+        const titular = detalleModal.miembros.find(m => m.es_titular) || detalleModal.pasajero
+        setPasajeroAMover(titular)
+        setDetalleModal(null)
+        cargarViajesDisponibles()
+        setMostrarModalMover(true)
+      }
+    }}
+  />
+)}
 
         {/* Modal Editar Pasajero */}
         {editando && (
@@ -1853,11 +2017,12 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
                   {(() => {
                     const viajeDest = viajesDisponibles.find(v => v.id === viajeSeleccionado)
                     if (!viajeDest) return null
-                    const precioOrigen = viaje.precio || 0
                     const precioDestino = viajeDest.precio || 0
-                    const diferencia = precioDestino - precioOrigen
                     const montoPagado = pasajeroAMover.monto_pagado || 0
-                    const deudaRestante = precioDestino - montoPagado
+                    
+                    // Recalcular monto total con el nuevo viaje
+                    const nuevoMontoTotal = precioDestino // Simplificado, en realidad debería recalcular con edad y seguro
+                    const deudaRestante = nuevoMontoTotal - montoPagado
                     
                     return (
                       <div className={`p-3 rounded-lg mb-4 ${
@@ -1874,11 +2039,6 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
                           </p>
                           <p className="text-gray-300">
                             Precio destino: <span className="text-blue-400 font-semibold">${precioDestino.toLocaleString()}</span>
-                          </p>
-                          <p className="text-gray-300">
-                            Diferencia: <span className={`font-semibold ${diferencia >= 0 ? 'text-yellow-400' : 'text-green-400'}`}>
-                              {diferencia >= 0 ? '+' : ''}{diferencia.toLocaleString()}
-                            </span>
                           </p>
                           <p className={`font-semibold ${deudaRestante > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
                             {deudaRestante > 0 

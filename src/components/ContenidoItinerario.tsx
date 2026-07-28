@@ -116,7 +116,7 @@ export default function ContenidoItinerario({ eventos, onAgregarEvento, onElimin
         <div style={{ textAlign: 'center', padding: '32px 0' }}>
           <p style={{ fontSize: 28, margin: '0 0 8px' }}>📅</p>
           <p style={{ fontSize: 13, color: TEXTO_MUTED, margin: 0 }}>No hay eventos cargados</p>
-          <p style={{ fontSize: 11, color: TEXTO_MUTED, margin: '4px 0 0' }}>Clickeá "+ Agregar evento" para empezar</p>
+          <p style={{ fontSize: 11, color: TEXTO_MUTED, margin: '4px 0 0' }}>Clickeá + Agregar evento para empezar</p>
         </div>
       ) : (
         <div style={{ paddingLeft: 20, position: 'relative' }}>

@@ -7,6 +7,14 @@ import { revalidatePath } from 'next/cache'
 // TIPOS
 // ============================================
 
+type RangoEdad = {
+  id: string
+  edad_min: number
+  edad_max: number
+  precio: number
+  descripcion: string
+}
+
 type PasajeroResumen = {
   id: string
   nombre: string | null
@@ -75,7 +83,7 @@ async function obtenerProximoNumeroRecibo() {
 }
 
 // ============================================
-// APROBAR PASAJERO - CON INICIALES
+// APROBAR PASAJERO - CON INICIALES (CORREGIDO)
 // ============================================
 
 export async function aprobarPasajero(
@@ -83,33 +91,61 @@ export async function aprobarPasajero(
   viajeId: string,
   iniciales?: string
 ) {
+   console.log('🔵 aprobarPasajero - INICIO')
+  console.log('🔵 pasajeroId:', pasajeroId)
+  console.log('🔵 viajeId:', viajeId)
+  console.log('🔵 iniciales:', iniciales)
+  
   const supabase = await createClient()
 
   // Traer datos del pasajero y del viaje
-  const { data: pasajero } = await supabase
+  const { data: pasajero, error: errorPasajero } = await supabase
     .from('pasajeros')
-    .select('fecha_nacimiento')
+    .select('fecha_nacimiento, seguro_incluido')
     .eq('id', pasajeroId)
     .single()
 
-  const { data: viaje } = await supabase
+  if (errorPasajero) {
+    console.error('🔴 Error al obtener pasajero:', errorPasajero)
+    return { error: errorPasajero.message }
+  }
+
+  const { data: viaje, error: errorViaje } = await supabase
     .from('viajes')
-    .select('precio, precio_menor, precio_bebe')
+    .select('precio, precio_seguro, rangos_edad')
     .eq('id', viajeId)
     .single()
 
-  // Calcular precio según edad
-  let montoTotal = viaje?.precio ?? 0
-  if (pasajero?.fecha_nacimiento && viaje) {
+  if (errorViaje || !viaje) {
+    console.error('🔴 Error al obtener viaje:', errorViaje)
+    return { error: 'No se encontró el viaje' }
+  }
+
+  // ✅ Calcular precio según edad usando rangos_edad
+  let montoTotal = viaje.precio ?? 0
+  let edad: number | null = null
+
+  if (pasajero?.fecha_nacimiento) {
     const hoy = new Date()
     const nac = new Date(pasajero.fecha_nacimiento)
-    let edad = hoy.getFullYear() - nac.getFullYear()
+    edad = hoy.getFullYear() - nac.getFullYear()
     const mes = hoy.getMonth() - nac.getMonth()
     if (mes < 0 || (mes === 0 && hoy.getDate() < nac.getDate())) edad--
 
-    if (edad <= 3) montoTotal = viaje.precio_bebe ?? viaje.precio ?? 0
-    else if (edad <= 10) montoTotal = viaje.precio_menor ?? viaje.precio ?? 0
-    else montoTotal = viaje.precio ?? 0
+    // Buscar en rangos_edad
+    if (viaje.rangos_edad && viaje.rangos_edad.length > 0) {
+      const rango = viaje.rangos_edad.find(
+        (r: RangoEdad) => edad !== null && edad >= r.edad_min && edad <= r.edad_max
+      )
+      if (rango) {
+        montoTotal = rango.precio
+      }
+    }
+  }
+
+  // ✅ Sumar seguro si corresponde
+  if (pasajero?.seguro_incluido) {
+    montoTotal += (viaje.precio_seguro ?? 20000)
   }
 
   const updateData: UpdatePasajero = {
@@ -117,24 +153,32 @@ export async function aprobarPasajero(
     monto_total: montoTotal,
   }
 
-  if (iniciales) {
+  if (iniciales && iniciales.trim()) {
     updateData.iniciales_vendedor = iniciales.toUpperCase()
     updateData.vendedor = iniciales.toUpperCase()
   }
+
+  console.log('🟢 aprobarPasajero - updateData:', updateData)
 
   const { error } = await supabase
     .from('pasajeros')
     .update(updateData)
     .eq('id', pasajeroId)
 
-  if (error) return { error: error.message }
+  if (error) {
+    console.error('🔴 Error en aprobarPasajero:', error)
+    return { error: error.message }
+  }
 
+  // ✅ Forzar revalidación
   revalidatePath(`/viaje/${viajeId}`)
-  return { error: null }
+  revalidatePath('/home')
+  
+  return { error: null, success: true }
 }
 
 // ============================================
-// APROBAR GRUPO - CON INICIALES (TODOS LOS MIEMBROS)
+// APROBAR GRUPO - CON INICIALES (CORREGIDO)
 // ============================================
 
 export async function aprobarGrupo(
@@ -144,32 +188,51 @@ export async function aprobarGrupo(
 ) {
   const supabase = await createClient()
 
-  const { data: miembros } = await supabase
+  const { data: miembros, error: errorMiembros } = await supabase
     .from('pasajeros')
-    .select('id, fecha_nacimiento')
+    .select('id, fecha_nacimiento, seguro_incluido')
     .eq('grupo_id', grupoId)
 
-  const { data: viaje } = await supabase
+  if (errorMiembros || !miembros) {
+    console.error('🔴 Error al obtener miembros:', errorMiembros)
+    return { error: 'No se encontraron miembros del grupo' }
+  }
+
+  const { data: viaje, error: errorViaje } = await supabase
     .from('viajes')
-    .select('precio, precio_menor, precio_bebe')
+    .select('precio, precio_seguro, rangos_edad')
     .eq('id', viajeId)
     .single()
 
-  if (!miembros || !viaje) return { error: 'No se encontraron datos' }
+  if (errorViaje || !viaje) {
+    console.error('🔴 Error al obtener viaje:', errorViaje)
+    return { error: 'No se encontró el viaje' }
+  }
 
   for (const miembro of miembros) {
     let montoTotal = viaje.precio ?? 0
+    let edad: number | null = null
 
     if (miembro.fecha_nacimiento) {
       const hoy = new Date()
       const nac = new Date(miembro.fecha_nacimiento)
-      let edad = hoy.getFullYear() - nac.getFullYear()
+      edad = hoy.getFullYear() - nac.getFullYear()
       const mes = hoy.getMonth() - nac.getMonth()
       if (mes < 0 || (mes === 0 && hoy.getDate() < nac.getDate())) edad--
 
-      if (edad <= 3) montoTotal = viaje.precio_bebe ?? viaje.precio ?? 0
-      else if (edad <= 10) montoTotal = viaje.precio_menor ?? viaje.precio ?? 0
-      else montoTotal = viaje.precio ?? 0
+      if (viaje.rangos_edad && viaje.rangos_edad.length > 0) {
+        const rango = viaje.rangos_edad.find(
+          (r: RangoEdad) => edad !== null && edad >= r.edad_min && edad <= r.edad_max
+        )
+        if (rango) {
+          montoTotal = rango.precio
+        }
+      }
+    }
+
+    // ✅ Sumar seguro si corresponde
+    if (miembro.seguro_incluido) {
+      montoTotal += (viaje.precio_seguro ?? 20000)
     }
 
     const updateData: UpdatePasajero = {
@@ -177,7 +240,7 @@ export async function aprobarGrupo(
       monto_total: montoTotal,
     }
 
-    if (iniciales) {
+    if (iniciales && iniciales.trim()) {
       updateData.iniciales_vendedor = iniciales.toUpperCase()
       updateData.vendedor = iniciales.toUpperCase()
     }
@@ -189,7 +252,9 @@ export async function aprobarGrupo(
   }
 
   revalidatePath(`/viaje/${viajeId}`)
-  return { error: null }
+  revalidatePath('/home')
+  
+  return { error: null, success: true }
 }
 
 // ============================================

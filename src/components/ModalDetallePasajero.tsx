@@ -1,6 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+
+type RangoEdad = {
+  id: string
+  edad_min: number
+  edad_max: number
+  precio: number
+  descripcion: string
+}
 
 type Pasajero = {
   id: string
@@ -33,6 +42,7 @@ type Pasajero = {
   es_menor_18?: boolean | null
   vendedor?: string | null
   iniciales_vendedor?: string | null
+  seguro_incluido?: boolean | null
 }
 
 type Props = {
@@ -79,13 +89,12 @@ export default function ModalDetallePasajero({
   const yaAprobado = pasajero.estado_revision === 'aprobado'
 
   const handleAprobar = () => {
-    console.log('🟢 handleAprobar - vendedorSeleccionado:', vendedorSeleccionado)
-    if (!vendedorSeleccionado) {
-      alert('Por favor, seleccioná un vendedor')
-      return
-    }
-    console.log('🟢 Aprobando con vendedor:', vendedorSeleccionado)
-    onAprobar(vendedorSeleccionado.iniciales)
+    console.log('🟢 handleAprobar - EJECUTADO')
+    console.log('🟢 pasajero.id:', pasajero.id)
+    console.log('🟢 vendedorSeleccionado:', vendedorSeleccionado)
+    const iniciales = vendedorSeleccionado?.iniciales || ''
+    console.log('🟢 iniciales a enviar:', iniciales)
+    onAprobar(iniciales)
   }
 
   const seleccionarVendedor = (iniciales: string, nombre: string) => {
@@ -104,6 +113,100 @@ export default function ModalDetallePasajero({
     if (onVerHistorial) {
       const nombre = `${titular.nombre || ''} ${titular.apellido || ''}`.trim() || 'Pasajero'
       onVerHistorial(titular.id, nombre)
+    }
+  }
+
+  // 🔥 Función de aprobación directa - CON CÁLCULO DE SEGURO (sin any)
+  const aprobarDirecto = async () => {
+    console.log('🔥🔥🔥 APROBACIÓN DIRECTA DESDE MODAL 🔥🔥🔥')
+    console.log('pasajero.id:', pasajero.id)
+    
+    try {
+      const supabase = createClient()
+      
+      // 1. Obtener los datos del pasajero y su viaje
+      const { data: pasajeroData, error: errorPasajero } = await supabase
+        .from('pasajeros')
+        .select('viaje_id, fecha_nacimiento, seguro_incluido')
+        .eq('id', pasajero.id)
+        .single()
+      
+      if (errorPasajero || !pasajeroData) {
+        console.error('🔴 Error al obtener pasajero:', errorPasajero)
+        alert('❌ Error al obtener datos del pasajero')
+        return
+      }
+      
+      // 2. Obtener los datos del viaje
+      const { data: viajeData, error: errorViaje } = await supabase
+        .from('viajes')
+        .select('precio, precio_seguro, rangos_edad')
+        .eq('id', pasajeroData.viaje_id)
+        .single()
+      
+      if (errorViaje || !viajeData) {
+        console.error('🔴 Error al obtener viaje:', errorViaje)
+        alert('❌ Error al obtener datos del viaje')
+        return
+      }
+      
+      // 3. Calcular el precio según la edad
+      let montoTotal: number = viajeData.precio || 0
+      let edad: number | null = null
+      
+      if (pasajeroData.fecha_nacimiento) {
+        const hoy = new Date()
+        const nac = new Date(pasajeroData.fecha_nacimiento)
+        edad = hoy.getFullYear() - nac.getFullYear()
+        const mes = hoy.getMonth() - nac.getMonth()
+        if (mes < 0 || (mes === 0 && hoy.getDate() < nac.getDate())) {
+          edad = edad - 1
+        }
+        
+        // Buscar en rangos_edad
+        if (viajeData.rangos_edad && viajeData.rangos_edad.length > 0) {
+          const rango = viajeData.rangos_edad.find(
+            (r: RangoEdad) => edad !== null && edad >= r.edad_min && edad <= r.edad_max
+          )
+          if (rango) {
+            montoTotal = rango.precio
+          }
+        }
+      }
+      
+      // 4. ✅ SUMAR EL SEGURO SI CORRESPONDE
+      const precioSeguro: number = viajeData.precio_seguro || 20000
+      if (pasajeroData.seguro_incluido) {
+        montoTotal = montoTotal + precioSeguro
+        console.log('🟢 Seguro incluido: +$' + precioSeguro)
+      }
+      
+      console.log('🟢 Monto total calculado:', montoTotal)
+      
+      // 5. Actualizar el pasajero con estado_revision y monto_total
+      const { error } = await supabase
+        .from('pasajeros')
+        .update({ 
+          estado_revision: 'aprobado',
+          monto_total: montoTotal
+        })
+        .eq('id', pasajero.id)
+      
+      if (error) {
+        console.error('🔴 Error en aprobación directa:', error)
+        alert('❌ Error: ' + error.message)
+        return
+      }
+      
+      console.log('🟢 Pasajero aprobado con monto total: $' + montoTotal.toLocaleString())
+      alert('✅ Pasajero aprobado correctamente!\nMonto total: $' + montoTotal.toLocaleString())
+      
+      // Recargar la página para ver los cambios
+      window.location.reload()
+      
+    } catch (err) {
+      console.error('🔴 Error en catch de aprobación directa:', err)
+      alert('❌ Error: ' + (err as Error).message)
     }
   }
 
@@ -173,6 +276,16 @@ export default function ModalDetallePasajero({
                 <div>
                   <p className="text-gray-400 text-xs">Nacionalidad</p>
                   <p className="text-gray-900">{titular.nacionalidad || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 text-xs">🛡️ Seguro de viaje</p>
+                  <p className="text-gray-900">
+                    {titular.seguro_incluido ? (
+                      <span className="text-green-600 font-medium">✅ Incluido</span>
+                    ) : (
+                      <span className="text-gray-400">No contratado</span>
+                    )}
+                  </p>
                 </div>
                 {titular.vendedor && (
                   <div>
@@ -249,6 +362,7 @@ export default function ModalDetallePasajero({
                             {m.enfermedad && <p>Enfermedad: {m.enfermedad}</p>}
                             {m.alergia && <p>Alergia: {m.alergia}</p>}
                             {m.dieta_especial && <p>Dieta: {m.dieta_especial}</p>}
+                            <p>🛡️ Seguro: {m.seguro_incluido ? '✅ Incluido' : '❌ No'}</p>
                           </div>
                         </div>
                         <span className={`text-xs px-2 py-0.5 rounded-full ml-2 flex-shrink-0 ${
@@ -265,43 +379,41 @@ export default function ModalDetallePasajero({
               </div>
             )}
 
-            {/* VENDEDOR - SOLO LISTA */}
-            {!yaAprobado && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm font-semibold text-blue-800 mb-2">
-                  👤 Vendedor <span className="text-red-500">*</span>
-                </p>
-                
-                {vendedorSeleccionado ? (
-                  <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-2">
-                    <div className="flex items-center gap-3">
-                      <span className="w-9 h-9 rounded-full bg-green-100 text-green-700 text-sm font-bold flex items-center justify-center">
-                        {vendedorSeleccionado.iniciales}
-                      </span>
-                      <span className="text-sm text-gray-900 font-medium">{vendedorSeleccionado.nombre}</span>
-                    </div>
-                    <button
-                      onClick={() => setVendedorSeleccionado(null)}
-                      className="text-xs text-red-500 hover:text-red-700 font-medium"
-                      type="button"
-                    >
-                      ✕ Quitar
-                    </button>
+            {/* VENDEDOR - OPCIONAL */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-semibold text-blue-800 mb-2">
+                👤 Vendedor <span className="text-gray-500 font-normal">(opcional)</span>
+              </p>
+              
+              {vendedorSeleccionado ? (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-2">
+                  <div className="flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-full bg-green-100 text-green-700 text-sm font-bold flex items-center justify-center">
+                      {vendedorSeleccionado.iniciales}
+                    </span>
+                    <span className="text-sm text-gray-900 font-medium">{vendedorSeleccionado.nombre}</span>
                   </div>
-                ) : (
                   <button
-                    onClick={() => setMostrarListaVendedores(true)}
-                    className="w-full border-2 border-dashed border-blue-300 rounded-lg py-3 text-sm text-blue-600 hover:bg-blue-100 transition-colors font-medium"
+                    onClick={() => setVendedorSeleccionado(null)}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium"
                     type="button"
                   >
-                    + Seleccionar vendedor
+                    ✕ Quitar
                   </button>
-                )}
-                <p className="text-xs text-blue-500 mt-1">
-                  {vendedorSeleccionado ? 'Vendedor asignado ✅' : 'Requerido para confirmar la reserva'}
-                </p>
-              </div>
-            )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => setMostrarListaVendedores(true)}
+                  className="w-full border-2 border-dashed border-blue-300 rounded-lg py-3 text-sm text-blue-600 hover:bg-blue-100 transition-colors font-medium"
+                  type="button"
+                >
+                  + Seleccionar vendedor (opcional)
+                </button>
+              )}
+              <p className="text-xs text-blue-500 mt-1">
+                {vendedorSeleccionado ? 'Vendedor asignado ✅' : 'No es obligatorio para aprobar'}
+              </p>
+            </div>
           </div>
 
           {/* BOTONES FIJOS ABAJO */}
@@ -376,18 +488,14 @@ export default function ModalDetallePasajero({
               </button>
             )}
 
+            {/* ✅ BOTÓN APROBAR - CON CÁLCULO DE SEGURO */}
             {!yaAprobado && (
               <button
-                onClick={handleAprobar}
-                disabled={estaAprobando || !vendedorSeleccionado}
-                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                  vendedorSeleccionado && !estaAprobando
-                    ? 'bg-blue-900 hover:bg-blue-800 text-white' 
-                    : 'bg-gray-300 text-gray-500'
-                }`}
+                onClick={aprobarDirecto}
+                className="flex-1 bg-green-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-green-700 transition-colors"
                 type="button"
               >
-                {estaAprobando ? 'Aprobando...' : '✅ Aprobar'}
+                ✅ Aprobar
               </button>
             )}
           </div>
