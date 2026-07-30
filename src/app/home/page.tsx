@@ -24,6 +24,25 @@ type Viaje = {
   precio?: number | null
 }
 
+// ✅ Función para formatear fecha (desde string ISO, sin zona horaria)
+const formatearFecha = (fecha: string) => {
+  if (!fecha) return '--/--/----'
+  // Tomar solo la parte de la fecha (YYYY-MM-DD)
+  const partes = fecha.split('T')[0].split('-')
+  return `${partes[2]}/${partes[1]}/${partes[0]}`
+}
+
+// ✅ Función para calcular días restantes
+const calcularDiasRestantes = (fechaInicio: string) => {
+  const hoy = new Date()
+  // Para comparación, usar solo la fecha sin hora
+  const hoyStr = hoy.toISOString().split('T')[0]
+  const inicioStr = fechaInicio.split('T')[0]
+  const inicio = new Date(inicioStr + 'T00:00:00')
+  const diff = inicio.getTime() - hoy.getTime()
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
 export default function HomePage() {
   const router = useRouter()
   const [viajes, setViajes] = useState<Viaje[]>([])
@@ -36,20 +55,17 @@ export default function HomePage() {
     const cargarDatos = async () => {
       const supabase = createClient()
       
-      // Obtener usuario
       const { data: { user } } = await supabase.auth.getUser()
       if (user?.email) {
         const nombre = user.email.split('@')[0]
         setNombreUsuario(nombre.charAt(0).toUpperCase() + nombre.slice(1))
       }
 
-      // Obtener viajes
       const { data: viajesData } = await supabase
         .from('viajes')
         .select('*')
         .order('fecha_inicio', { ascending: true })
 
-      // Obtener pasajeros
       const { data: pasajerosData } = await supabase
         .from('pasajeros')
         .select('id, viaje_id, estado_revision')
@@ -57,7 +73,6 @@ export default function HomePage() {
       if (viajesData) {
         setViajes(viajesData)
         
-        // Calcular totales
         const totalPasajeros = pasajerosData?.length || 0
         const pendientes = pasajerosData?.filter(p => p.estado_revision === 'pendiente').length || 0
 
@@ -67,7 +82,6 @@ export default function HomePage() {
           pendientesRevision: pendientes
         })
 
-        // Conteo por viaje
         const conteo: Record<string, { total: number; pendientes: number }> = {}
         viajesData.forEach((v) => {
           const del = pasajerosData?.filter(p => p.viaje_id === v.id) || []
@@ -100,13 +114,11 @@ export default function HomePage() {
     )
   }
 
-  // Calcular próximos viajes (los que no han pasado)
   const viajesProximos = viajes.filter(v => new Date(v.fecha_inicio) >= new Date())
 
   return (
     <main className="min-h-screen" style={{ background: BG_PAGINA }}>
 
-      {/* NAVBAR */}
       <nav className="sticky top-0 z-10 px-6 py-3 flex items-center justify-between" style={{ background: SN_AZUL, boxShadow: '0 2px 12px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center gap-3">
           <div className="relative w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: SN_CELESTE }}>
@@ -146,7 +158,6 @@ export default function HomePage() {
 
       <div className="max-w-6xl mx-auto px-6 py-8">
 
-        {/* BIENVENIDA */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white">
             ¡Bienvenido, {nombreUsuario}!
@@ -156,7 +167,6 @@ export default function HomePage() {
           </p>
         </div>
 
-        {/* STATS */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
           {[
             { label: 'Viajes totales', valor: totales.viajesActivos, acento: SN_CELESTE, icono: '✈️' },
@@ -177,7 +187,6 @@ export default function HomePage() {
           ))}
         </div>
 
-        {/* ENCABEZADO VIAJES */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-4">
             <h2 className="text-lg font-semibold" style={{ color: 'white' }}>Mis viajes</h2>
@@ -187,7 +196,6 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* CARDS DE VIAJES */}
         {viajes.length === 0 ? (
           <div className="text-center py-20 rounded-xl" style={{ background: BG_CARD, border: `1px dashed ${BORDE}` }}>
             <p className="text-5xl mb-4">🗺️</p>
@@ -207,13 +215,13 @@ export default function HomePage() {
               const conteo = conteoPorViaje[viaje.id] || { total: 0, pendientes: 0 }
               const porcentaje = viaje.cupo_total > 0 ? Math.min(100, Math.round((conteo.total / viaje.cupo_total) * 100)) : 0
               
-              const fechaInicio = new Date(viaje.fecha_inicio).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })
-              const fechaFin = new Date(viaje.fecha_fin).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })
-              const diasRestantes = Math.ceil((new Date(viaje.fecha_inicio).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+              // ✅ Usar la función de formateo correcta
+              const fechaInicio = formatearFecha(viaje.fecha_inicio)
+              const fechaFin = formatearFecha(viaje.fecha_fin)
+              const diasRestantes = calcularDiasRestantes(viaje.fecha_inicio)
               
               const esProximo = new Date(viaje.fecha_inicio) > new Date()
               const esActivo = new Date(viaje.fecha_inicio) <= new Date() && new Date(viaje.fecha_fin) >= new Date()
-              const esPasado = new Date(viaje.fecha_fin) < new Date()
 
               return (
                 <Link
@@ -226,7 +234,6 @@ export default function HomePage() {
                     borderLeft: `4px solid ${esActivo ? SN_AMARILLO : esProximo ? SN_CELESTE : '#4a5a6a'}`
                   }}
                 >
-                  {/* Cabecera */}
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-base leading-tight text-white group-hover:text-blue-300 transition-colors">
                       {viaje.destino}
@@ -248,12 +255,10 @@ export default function HomePage() {
                     </span>
                   </div>
 
-                  {/* Fechas */}
                   <p className="text-xs" style={{ color: TEXTO_MUTED }}>
                     📅 {fechaInicio} — {fechaFin}
                   </p>
 
-                  {/* Barra de ocupación */}
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-xs" style={{ color: TEXTO_MUTED }}>Ocupación</span>
@@ -270,7 +275,6 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  {/* Badge de pendientes */}
                   <div className="flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${BORDE}` }}>
                     <span className="text-xs font-medium" style={{ color: TEXTO_MUTED }}>
                       {conteo.total} pasajero{conteo.total !== 1 ? 's' : ''}

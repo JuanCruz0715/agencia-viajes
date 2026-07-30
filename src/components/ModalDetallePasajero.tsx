@@ -58,6 +58,7 @@ type Props = {
   estaAprobando?: boolean
   onMover?: () => void
   onMoverGrupo?: () => void
+  onEditarMontoTotal?: (data: { pasajeroId: string; montoTotal: number; nombre: string }) => void // ✅ NUEVO
 }
 
 // SOLO 3 VENDEDORES
@@ -80,6 +81,7 @@ export default function ModalDetallePasajero({
   estaAprobando = false,
   onMover,
   onMoverGrupo,
+  onEditarMontoTotal, // ✅ NUEVO
 }: Props) {
   const [vendedorSeleccionado, setVendedorSeleccionado] = useState<{ iniciales: string; nombre: string } | null>(null)
   const [mostrarListaVendedores, setMostrarListaVendedores] = useState(false)
@@ -116,7 +118,7 @@ export default function ModalDetallePasajero({
     }
   }
 
-  // 🔥 Función de aprobación directa - CON CÁLCULO DE SEGURO (sin any)
+  // 🔥 Función de aprobación directa - CON CÁLCULO DE SEGURO
   const aprobarDirecto = async () => {
     console.log('🔥🔥🔥 APROBACIÓN DIRECTA DESDE MODAL 🔥🔥🔥')
     console.log('pasajero.id:', pasajero.id)
@@ -496,6 +498,23 @@ export default function ModalDetallePasajero({
                 type="button"
               >
                 ✅ Aprobar
+              </button>
+            )}
+
+            {/* ✅ BOTÓN EDITAR MONTO TOTAL */}
+            {onEditarMontoTotal && (
+              <button
+                onClick={() => {
+                  onEditarMontoTotal({
+                    pasajeroId: pasajero.id,
+                    montoTotal: pasajero.monto_total || 0,
+                    nombre: `${pasajero.nombre || ''} ${pasajero.apellido || ''}`.trim() || 'Sin nombre'
+                  })
+                }}
+                className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm hover:bg-indigo-700 transition-colors"
+                type="button"
+              >
+                💰 Editar monto total
               </button>
             )}
           </div>

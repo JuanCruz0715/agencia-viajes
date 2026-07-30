@@ -24,18 +24,24 @@ type Props = {
   nombrePasajero: string
   onClose: () => void
   onEditarPago?: (pago: Pago) => void
+  onPagoEliminado?: () => void
 }
 
 export default function ModalHistorialPagos({
   pasajeroId,
   nombrePasajero,
   onClose,
-  onEditarPago
+  onEditarPago,
+  onPagoEliminado,
 }: Props) {
   const [pagos, setPagos] = useState<Pago[]>([])
   const [cargando, setCargando] = useState(true)
+  const [eliminando, setEliminando] = useState<string | null>(null)
 
+  // ✅ Cargar pagos - con IIFE (función auto-ejecutable)
   useEffect(() => {
+    let isMounted = true
+
     const cargarPagos = async () => {
       try {
         const supabase = createClient()
@@ -46,27 +52,118 @@ export default function ModalHistorialPagos({
           .eq('eliminado', false)
           .order('created_at', { ascending: false })
 
-        if (!error && data) {
+        if (!error && data && isMounted) {
           setPagos(data)
         }
       } catch (error) {
         console.error('Error al cargar pagos:', error)
       } finally {
-        setCargando(false)
+        if (isMounted) {
+          setCargando(false)
+        }
       }
     }
 
     cargarPagos()
+
+    return () => {
+      isMounted = false
+    }
   }, [pasajeroId])
+
+  // ✅ Función para recargar pagos (se usa después de eliminar)
+  const recargarPagos = async () => {
+    setCargando(true)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('pagos')
+        .select('*')
+        .eq('pasajero_id', pasajeroId)
+        .eq('eliminado', false)
+        .order('created_at', { ascending: false })
+
+      if (!error && data) {
+        setPagos(data)
+      }
+    } catch (error) {
+      console.error('Error al recargar pagos:', error)
+    } finally {
+      setCargando(false)
+    }
+  }
 
   const totalPagado = pagos.reduce((sum, p) => sum + (p.monto || 0), 0)
 
-  // ✅ Función para abrir el recibo usando el ID del pago
+  // ✅ Función para abrir el recibo
   const abrirRecibo = (pagoId: string) => {
     if (pagoId) {
       window.open(`/recibo/${pagoId}`, '_blank')
     } else {
       alert('Este pago no tiene un recibo asociado')
+    }
+  }
+
+  // ✅ Función para ELIMINAR el pago
+  const eliminarPago = async (pago: Pago) => {
+    if (!confirm(`¿Eliminar este pago de $${pago.monto.toLocaleString()}?\n\nEl pasajero quedará con el monto actualizado.`)) {
+      return
+    }
+
+    setEliminando(pago.id)
+    const supabase = createClient()
+
+    try {
+      // 1. Eliminar el pago (soft delete)
+      const { error: errorPago } = await supabase
+        .from('pagos')
+        .update({
+          eliminado: true,
+          fecha_eliminacion: new Date().toISOString(),
+          motivo_eliminacion: 'Eliminado por usuario'
+        })
+        .eq('id', pago.id)
+
+      if (errorPago) throw errorPago
+
+      // 2. Recalcular monto_pagado del pasajero
+      const { data: pagosRestantes } = await supabase
+        .from('pagos')
+        .select('monto')
+        .eq('pasajero_id', pasajeroId)
+        .eq('eliminado', false)
+
+      const nuevoMontoPagado = pagosRestantes?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
+
+      const { data: pasajero } = await supabase
+        .from('pasajeros')
+        .select('monto_total')
+        .eq('id', pasajeroId)
+        .single()
+
+      const estaPagado = nuevoMontoPagado >= (pasajero?.monto_total || 0)
+
+      await supabase
+        .from('pasajeros')
+        .update({
+          monto_pagado: nuevoMontoPagado,
+          estado_pago: estaPagado ? 'pagado' : 'pendiente'
+        })
+        .eq('id', pasajeroId)
+
+      // 3. Recargar la lista de pagos
+      await recargarPagos()
+      
+      // 4. Notificar al padre
+      if (onPagoEliminado) onPagoEliminado()
+
+      alert('✅ Pago eliminado correctamente')
+
+    } catch (error) {
+      console.error('Error al eliminar pago:', error)
+      alert('❌ Error al eliminar el pago')
+    } finally {
+      setEliminando(null)
     }
   }
 
@@ -144,16 +241,18 @@ export default function ModalHistorialPagos({
                   
                   {/* ✅ Botones de acción */}
                   <div className="flex gap-1 flex-shrink-0">
-                    {/* Botón Ver Recibo - usando el ID del pago */}
-                    <button
-                      onClick={() => abrirRecibo(pago.id)}
-                      className="text-green-400 hover:text-green-300 text-xs px-2 py-1 rounded hover:bg-green-500/10 transition-colors"
-                      title="Ver recibo"
-                    >
-                      📄 Recibo
-                    </button>
+                    {/* Botón Ver Recibo */}
+                    {pago.numero_recibo && (
+                      <button
+                        onClick={() => abrirRecibo(pago.id)}
+                        className="text-green-400 hover:text-green-300 text-xs px-2 py-1 rounded hover:bg-green-500/10 transition-colors"
+                        title="Ver recibo"
+                      >
+                        📄 Recibo
+                      </button>
+                    )}
                     
-                    {/* Botón Editar */}
+                    {/* Botón Editar Pago */}
                     {onEditarPago && (
                       <button
                         onClick={() => onEditarPago(pago)}
@@ -163,6 +262,20 @@ export default function ModalHistorialPagos({
                         ✏️ Editar
                       </button>
                     )}
+
+                    {/* ✅ Botón Eliminar Pago */}
+                    <button
+                      onClick={() => eliminarPago(pago)}
+                      disabled={eliminando === pago.id}
+                      className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      title="Eliminar pago"
+                    >
+                      {eliminando === pago.id ? (
+                        <span className="inline-block animate-spin h-3 w-3 border-2 border-red-400 border-t-transparent rounded-full" />
+                      ) : (
+                        '🗑️'
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>
