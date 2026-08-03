@@ -16,6 +16,7 @@ import BotonExportarPagos from '@/components/BotonExportarPagos'
 import ContenidoAsientos from '@/components/ContenidoAsientos'
 import ContenidoItinerario from '@/components/ContenidoItinerario'
 import ContenidoHoteles from '@/components/ContenidoHoteles'
+import BotonExportarAsientos from '@/components/BotonExportarAsientos'
 import { createClient } from '@/lib/supabase/client'
 
 // ============================================
@@ -270,7 +271,7 @@ const generarAsientos = (): Asiento[] => {
       tipo: 'cama',
       nombrePasajero: undefined,
       pasajeroId: undefined,
-      recargo_asiento: 10000 // Recargo para asientos 1-12
+      recargo_asiento: (i >= 1 && i <= 4) ? 10000 : 0 // ✅ SOLO 1,2,3,4
     })
   }
   
@@ -282,7 +283,7 @@ const generarAsientos = (): Asiento[] => {
       tipo: 'semi_cama',
       nombrePasajero: undefined,
       pasajeroId: undefined,
-      recargo_asiento: 0
+      recargo_asiento: (i >= 45 && i <= 56) ? 10000 : 0 // ✅ SOLO 45-56
     })
   }
   
@@ -702,6 +703,37 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
   }
 }
 
+// Cargar asignaciones de asientos desde la base de datos
+useEffect(() => {
+  const cargarAsignaciones = async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('asignaciones_asientos')
+      .select('*')
+      .eq('viaje_id', viaje.id)
+
+    if (!error && data) {
+      const nuevosAsientos = asientos.map(a => {
+        const asignacion = data.find(ass => ass.numero_asiento === a.numero)
+        if (asignacion) {
+          const pasajero = pasajeros.find(p => p.id === asignacion.pasajero_id)
+          return {
+            ...a,
+            estado: a.tipo === 'cama' ? 'cama_ocupada' as const : 'ocupado' as const,
+            pasajeroId: asignacion.pasajero_id,
+            nombrePasajero: pasajero ? `${pasajero.nombre || ''} ${pasajero.apellido || ''}`.trim() : 'Desconocido'
+          }
+        }
+        return a
+      })
+      setAsientos(nuevosAsientos)
+    }
+  }
+
+  if (viaje.id) {
+    cargarAsignaciones()
+  }
+}, [viaje.id, pasajeros])
   // ============================================
   // CARGAR PAGOS
   // ============================================
@@ -1690,75 +1722,86 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             </div>
 
             {/* CONTENIDO DE RUTA */}
-            {subTabRuta === 'asientos' && (
-              <ContenidoAsientos 
-                asientos={asientos}
-                pasajerosSinAsiento={pasajerosSinAsiento}
-                onAsignarAsiento={(asientoNumero, pasajeroId) => {
-                  const pasajero = pasajerosSinAsiento.find(p => p.id === pasajeroId)
-                  if (!pasajero) return
+           {subTabRuta === 'asientos' && (
+  <div>
+    <div className="flex justify-between items-center mb-4">
+      <h3 className="text-white font-medium">🪑 Mapa de asientos</h3>
+      <BotonExportarAsientos 
+        asientos={asientos}
+        viajeNombre={viaje.destino}
+      />
+    </div>
+            
+  <ContenidoAsientos 
+    asientos={asientos}
+    pasajerosSinAsiento={pasajerosSinAsiento}
+    onAsignarAsiento={(asientoNumero, pasajeroId) => {
+      const pasajero = pasajerosSinAsiento.find(p => p.id === pasajeroId)
+      if (!pasajero) return
 
-                  const asiento = asientos.find(a => a.numero === asientoNumero)
-                  const recargo = asiento?.recargo_asiento || 0
+      const asiento = asientos.find(a => a.numero === asientoNumero)
+      const recargo = asiento?.recargo_asiento || 0
 
-                  const nuevosAsientos = asientos.map(a =>
-                    a.numero === asientoNumero
-                      ? { 
-                          ...a, 
-                          estado: 'ocupado' as const,
-                          pasajeroId, 
-                          nombrePasajero: `${pasajero.nombre} ${pasajero.apellido}`
-                        }
-                      : a
-                  )
-                  setAsientos(nuevosAsientos)
+      const nuevosAsientos = asientos.map(a =>
+        a.numero === asientoNumero
+          ? { 
+              ...a, 
+              estado: 'ocupado' as const,
+              pasajeroId, 
+              nombrePasajero: `${pasajero.nombre} ${pasajero.apellido}`
+            }
+          : a
+      )
+      setAsientos(nuevosAsientos)
 
-                  const guardarRecargo = async () => {
-                    const supabase = createClient()
-                    const { error } = await supabase
-                      .from('pasajeros')
-                      .update({ recargo_asiento: recargo })
-                      .eq('id', pasajeroId)
-                    
-                    if (!error) {
-                      await recalcularMontoTotal(pasajeroId)
-                      router.refresh()
-                    }
-                  }
-                  guardarRecargo()
-                }}
-                onDesasignarAsiento={(asientoNumero) => {
-                  const nuevosAsientos = asientos.map(a =>
-                    a.numero === asientoNumero
-                      ? { 
-                          ...a, 
-                          estado: a.tipo === 'cama' ? 'cama_libre' as const : 'disponible' as const,
-                          pasajeroId: undefined, 
-                          nombrePasajero: undefined
-                        }
-                      : a
-                  )
-                  setAsientos(nuevosAsientos)
+      const guardarRecargo = async () => {
+        const supabase = createClient()
+        const { error } = await supabase
+          .from('pasajeros')
+          .update({ recargo_asiento: recargo })
+          .eq('id', pasajeroId)
+        
+        if (!error) {
+          await recalcularMontoTotal(pasajeroId)
+          router.refresh()
+        }
+      }
+      guardarRecargo()
+    }}
+    onDesasignarAsiento={(asientoNumero) => {
+      const nuevosAsientos = asientos.map(a =>
+        a.numero === asientoNumero
+          ? { 
+              ...a, 
+              estado: a.tipo === 'cama' ? 'cama_libre' as const : 'disponible' as const,
+              pasajeroId: undefined, 
+              nombrePasajero: undefined
+            }
+          : a
+      )
+      setAsientos(nuevosAsientos)
 
-                  const quitarRecargo = async () => {
-                    const asiento = asientos.find(a => a.numero === asientoNumero)
-                    if (asiento?.pasajeroId) {
-                      const supabase = createClient()
-                      const { error } = await supabase
-                        .from('pasajeros')
-                        .update({ recargo_asiento: 0 })
-                        .eq('id', asiento.pasajeroId)
-                      
-                      if (!error) {
-                        await recalcularMontoTotal(asiento.pasajeroId)
-                        router.refresh()
-                      }
-                    }
-                  }
-                  quitarRecargo()
-                }}
-              />
-            )}
+      const quitarRecargo = async () => {
+        const asiento = asientos.find(a => a.numero === asientoNumero)
+        if (asiento?.pasajeroId) {
+          const supabase = createClient()
+          const { error } = await supabase
+            .from('pasajeros')
+            .update({ recargo_asiento: 0 })
+            .eq('id', asiento.pasajeroId)
+          
+          if (!error) {
+            await recalcularMontoTotal(asiento.pasajeroId)
+            router.refresh()
+          }
+        }
+      }
+      quitarRecargo()
+    }}
+    viajeId={viaje.id} // ✅ AGREGAR ESTA LÍNEA
+  />
+  </div>
+)}
 
             {subTabRuta === 'itinerario' && (
               <ContenidoItinerario 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 
 const SN_AZUL = '#1B3A5C'
 const SN_CELESTE = '#2D9CB8'
@@ -10,6 +11,8 @@ const BG_CARD = '#15212C'
 const BORDE = '#1E2D3D'
 const TEXTO_MUTED = '#9FB3C2'
 
+// ✅ Asientos especiales (con recargo): SOLO 1,2,3,4 y 45,46,47,48,49,50,51,52,53,54,55,56
+const ASIENTOS_ESPECIALES = [1, 2, 3, 4, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56]
 type Asiento = {
   numero: number
   estado: 'ocupado' | 'disponible' | 'cama_ocupada' | 'cama_libre'
@@ -30,6 +33,7 @@ type Props = {
   pasajerosSinAsiento: PasajeroSinAsiento[]
   onAsignarAsiento: (asientoNumero: number, pasajeroId: string) => void
   onDesasignarAsiento?: (asientoNumero: number) => void
+  viajeId: string
 }
 
 // Distribución con el tipo correcto
@@ -48,10 +52,10 @@ const FILAS_PLANTA_ALTA: Array<[number | null, number | null, number | null, num
 ]
 
 const FILAS_PLANTA_BAJA: Array<[number | null, number | null, number | null, number | null]> = [
-  [45, 46, 47, 48],
-  [49, 50, 51, 52],
-  [53, 54, 55, 56],
-  [57, 58, 59, 60],
+  [45, 46, 47, null],   // Fila 1: 45,46,47
+  [48, 49, 50, null],   // Fila 2: 48,49,50
+  [51, 52, 53, null],   // Fila 3: 51,52,53
+  [54, 55, 56, null],   // Fila 4: 54,55,56
 ]
 
 type PlantaColectivoProps = {
@@ -79,6 +83,7 @@ function PlantaColectivo({
     if (!a) return <div style={{ width: 38, height: 38, flexShrink: 0 }} />
 
     const isSelected = asientoSeleccionado === num
+    const esEspecial = a.numero && ASIENTOS_ESPECIALES.includes(a.numero)
 
     function estiloBtn(a: Asiento | undefined, sel: boolean): React.CSSProperties {
       const base: React.CSSProperties = {
@@ -88,11 +93,26 @@ function PlantaColectivo({
       }
       if (!a) return { ...base, background: 'transparent', borderColor: 'transparent', cursor: 'default', color: 'transparent' }
       if (sel) return { ...base, background: SN_AMARILLO, borderColor: SN_AMARILLO, color: SN_AZUL, transform: 'scale(1.08)' }
+      
       switch (a.estado) {
-        case 'ocupado': return { ...base, background: SN_CELESTE, borderColor: '#1a7a9a', color: 'white' }
-        case 'disponible': return { ...base, background: '#1a2a3a', borderColor: '#2a3a4a', color: TEXTO_MUTED }
-        case 'cama_ocupada': return { ...base, background: SN_AMARILLO, borderColor: '#c49020', color: SN_AZUL }
-        case 'cama_libre': return { ...base, background: '#1a2a1a', borderColor: SN_AMARILLO, color: SN_AMARILLO }
+        case 'ocupado': 
+          return { 
+            ...base, 
+            background: SN_CELESTE, 
+            borderColor: esEspecial ? SN_AMARILLO : '#1a7a9a', 
+            color: 'white' 
+          }
+        case 'disponible': 
+          return { 
+            ...base, 
+            background: '#1a2a3a', 
+            borderColor: esEspecial ? SN_AMARILLO : '#2a3a4a', 
+            color: esEspecial ? SN_AMARILLO : TEXTO_MUTED
+          }
+        case 'cama_ocupada': 
+          return { ...base, background: SN_AMARILLO, borderColor: '#c49020', color: SN_AZUL }
+        case 'cama_libre': 
+          return { ...base, background: '#1a2a1a', borderColor: SN_AMARILLO, color: SN_AMARILLO }
       }
     }
 
@@ -106,6 +126,11 @@ function PlantaColectivo({
           title={a.nombrePasajero ? `${num} — ${a.nombrePasajero}` : `Asiento ${num}`}
         >
           {num}
+          {esEspecial && !a.nombrePasajero && a.estado !== 'ocupado' && a.estado !== 'cama_ocupada' && (
+            <span className="absolute -top-1 -right-1 text-[8px] bg-yellow-500 text-black px-0.5 rounded-full font-bold leading-tight">
+              +$10k
+            </span>
+          )}
         </button>
       </div>
     )
@@ -177,17 +202,101 @@ export default function ContenidoAsientos({
   asientos,
   pasajerosSinAsiento,
   onAsignarAsiento,
-  onDesasignarAsiento
+  onDesasignarAsiento,
+  viajeId
 }: Props) {
   const [asientoSel, setAsientoSel] = useState<number | null>(null)
   const [pasajeroSel, setPasajeroSel] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<number | null>(null)
+  const [guardando, setGuardando] = useState(false)
 
   const asientoSelObj = asientoSel ? asientos.find(a => a.numero === asientoSel) : null
 
+  // ✅ Función para guardar asignación en la base de datos
+  const guardarAsignacion = async (asientoNumero: number, pasajeroId: string) => {
+    setGuardando(true)
+    const supabase = createClient()
+    
+    try {
+      // Verificar si el asiento ya está asignado
+      const { data: existing } = await supabase
+        .from('asignaciones_asientos')
+        .select('id')
+        .eq('viaje_id', viajeId)
+        .eq('numero_asiento', asientoNumero)
+        .maybeSingle()
+
+      const asiento = asientos.find(a => a.numero === asientoNumero)
+      const tipo = asiento?.tipo || 'semi_cama'
+
+      let error
+
+      if (existing) {
+        // Actualizar asignación existente
+        const { error: updateError } = await supabase
+          .from('asignaciones_asientos')
+          .update({ pasajero_id: pasajeroId, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+        
+        error = updateError
+      } else {
+        // Crear nueva asignación
+        const { error: insertError } = await supabase
+          .from('asignaciones_asientos')
+          .insert({
+            viaje_id: viajeId,
+            pasajero_id: pasajeroId,
+            numero_asiento: asientoNumero,
+            tipo_asiento: tipo
+          })
+        
+        error = insertError
+      }
+
+      if (error) {
+        alert('❌ Error al asignar el asiento: ' + error.message)
+        throw error
+      }
+
+      // Llamar al callback del padre para actualizar el estado local
+      onAsignarAsiento(asientoNumero, pasajeroId)
+      
+    } catch (error) {
+      alert('❌ Error al asignar el asiento')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  // ✅ Función para eliminar asignación de la base de datos
+  const eliminarAsignacion = async (asientoNumero: number) => {
+    setGuardando(true)
+    const supabase = createClient()
+    
+    try {
+      const { error } = await supabase
+        .from('asignaciones_asientos')
+        .delete()
+        .eq('viaje_id', viajeId)
+        .eq('numero_asiento', asientoNumero)
+      
+      if (error) throw error
+
+      // Llamar al callback del padre
+      if (onDesasignarAsiento) {
+        onDesasignarAsiento(asientoNumero)
+      }
+      
+    } catch (error) {
+      alert('❌ Error al desasignar el asiento')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   function handleAsignar() {
     if (asientoSel && pasajeroSel) {
-      onAsignarAsiento(asientoSel, pasajeroSel)
+      guardarAsignacion(asientoSel, pasajeroSel)
       setAsientoSel(null)
       setPasajeroSel(null)
     }
@@ -195,7 +304,7 @@ export default function ContenidoAsientos({
 
   function handleDesasignar() {
     if (asientoSel && onDesasignarAsiento) {
-      onDesasignarAsiento(asientoSel)
+      eliminarAsignacion(asientoSel)
       setAsientoSel(null)
     }
   }
@@ -311,17 +420,29 @@ export default function ContenidoAsientos({
           {asientoSel && pasajeroSel && !asientoSelObj?.nombrePasajero && (
             <button
               onClick={handleAsignar}
-              style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', background: SN_CELESTE, color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              disabled={guardando}
+              style={{ 
+                width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', 
+                background: guardando ? '#3a4a5a' : SN_CELESTE, 
+                color: 'white', fontSize: 12, fontWeight: 600, cursor: guardando ? 'default' : 'pointer',
+                opacity: guardando ? 0.6 : 1
+              }}
             >
-              Asignar asiento {asientoSel}
+              {guardando ? 'Guardando...' : `Asignar asiento ${asientoSel}`}
             </button>
           )}
           {asientoSelObj?.nombrePasajero && onDesasignarAsiento && (
             <button
               onClick={handleDesasignar}
-              style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', background: '#DC2626', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              disabled={guardando}
+              style={{ 
+                width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', 
+                background: guardando ? '#3a4a5a' : '#DC2626', 
+                color: 'white', fontSize: 12, fontWeight: 600, cursor: guardando ? 'default' : 'pointer',
+                opacity: guardando ? 0.6 : 1
+              }}
             >
-              Desasignar asiento {asientoSel}
+              {guardando ? 'Guardando...' : `Desasignar asiento ${asientoSel}`}
             </button>
           )}
           {asientoSel && (
