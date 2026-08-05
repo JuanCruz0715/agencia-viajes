@@ -1,6 +1,8 @@
+// app/viaje/[id]/page.tsx
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import FichaViaje from '@/components/FichaViaje'
+import DebugErrorBoundary from '@/components/DebugErrorBoundary'
 
 export default async function ViajePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -18,5 +20,17 @@ export default async function ViajePage({ params }: { params: Promise<{ id: stri
     .eq('viaje_id', id)
     .order('dia_numero', { ascending: true })
 
-  return <FichaViaje viaje={viaje} pasajeros={pasajeros ?? []} hojaRuta={hojaRuta ?? []} />
+  const pasajerosArray = Array.isArray(pasajeros) ? pasajeros : []
+  const hojaRutaArray = Array.isArray(hojaRuta) ? hojaRuta : []
+
+  return (
+    <DebugErrorBoundary>
+      <FichaViaje 
+        viaje={viaje} 
+        pasajeros={pasajerosArray} 
+        hojaRuta={hojaRutaArray}
+        viajeId={id}
+      />
+    </DebugErrorBoundary>
+  )
 }

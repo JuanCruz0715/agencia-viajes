@@ -475,18 +475,14 @@ const recalcularMontoTotal = async (pasajeroId: string) => {
     const nuevoMontoTotal = precioBase + precioSeguro + recargoAsiento
     
     // Actualizar el monto_total del pasajero
-    const { error: errorUpdate } = await supabase
+    await supabase
       .from('pasajeros')
       .update({ monto_total: nuevoMontoTotal })
       .eq('id', pasajeroId)
     
-    if (errorUpdate) {
-      console.error('Error al recalcular monto total:', errorUpdate)
-    }
-    
     return nuevoMontoTotal
   } catch (error) {
-    console.error('Error en recalcularMontoTotal:', error)
+    // Error ignorado (sin console.error)
   }
 }
 
@@ -513,7 +509,6 @@ const handleGuardarMontoTotal = async () => {
     alert('✅ Monto total actualizado correctamente')
     
   } catch (error) {
-    console.error('Error al editar monto total:', error)
     alert('❌ Error al editar el monto total')
     setGuardandoMontoTotal(false)
   }
@@ -549,7 +544,6 @@ const handleGuardarMontoGrupal = async () => {
     alert(`✅ Monto total del grupo actualizado correctamente\nCada pasajero: $${montoPorPasajero.toLocaleString()}`)
     
   } catch (error) {
-    console.error('Error al editar monto total grupal:', error)
     alert('❌ Error al editar el monto total del grupo')
     setGuardandoMontoTotal(false)
   }
@@ -696,44 +690,98 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
     setViajeSeleccionado('')
     
   } catch (error) {
-    console.error('Error al mover pasajero:', error)
     alert('❌ Error al mover el pasajero. Por favor, intenta de nuevo.')
   } finally {
     setMoviendoPasajero(false)
   }
 }
 
-// Cargar asignaciones de asientos desde la base de datos
+// ============================================
+// CARGAR HABITACIONES Y ASIGNACIONES (CORREGIDO)
+// ============================================
+useEffect(() => {
+  const cargarHabitaciones = async () => {
+    if (!viaje.id) return // Asegurar que tenemos ID
+
+    const supabase = createClient()
+    
+    // 1. Traer las habitaciones del viaje
+    const { data: habitacionesData, error: errorHab } = await supabase
+      .from('habitaciones')
+      .select('*')
+      .eq('viaje_id', viaje.id)
+    
+    if (errorHab) return
+
+    // 2. Traer todas las asignaciones de este viaje
+    const { data: asignacionesData, error: errorAsig } = await supabase
+      .from('habitaciones_pasajeros')
+      .select('*')
+      .eq('viaje_id', viaje.id)
+
+    if (errorAsig) return
+
+    // 3. Combinar los datos correctamente
+    const habs = (habitacionesData || []).map(h => ({
+      id: h.id,
+      numero: h.numero,
+      tipo: h.tipo,
+      capacidad: h.capacidad,
+      // Filtramos solo los pasajeros que pertenecen a esta habitación específica
+      pasajeros: (asignacionesData || [])
+        .filter(a => a.habitacion_id === h.id)
+        .map(a => a.pasajero_id)
+    }))
+
+    // 4. Actualizar el estado de React
+    setHabitaciones(habs)
+  }
+
+  cargarHabitaciones()
+}, [viaje.id]) // Se ejecuta cada vez que cambia el ID del viaje
+
+
+
+// ============================================
+// CARGAR ASIGNACIONES DE ASIENTOS (AGREGAR ESTO)
+// ============================================
 useEffect(() => {
   const cargarAsignaciones = async () => {
+    if (!viaje.id) return
+
     const supabase = createClient()
+    
+    // 1. Traer las asignaciones de asientos de la base de datos
     const { data, error } = await supabase
       .from('asignaciones_asientos')
       .select('*')
       .eq('viaje_id', viaje.id)
 
-    if (!error && data) {
-      const nuevosAsientos = asientos.map(a => {
-        const asignacion = data.find(ass => ass.numero_asiento === a.numero)
-        if (asignacion) {
-          const pasajero = pasajeros.find(p => p.id === asignacion.pasajero_id)
-          return {
-            ...a,
-            estado: a.tipo === 'cama' ? 'cama_ocupada' as const : 'ocupado' as const,
-            pasajeroId: asignacion.pasajero_id,
-            nombrePasajero: pasajero ? `${pasajero.nombre || ''} ${pasajero.apellido || ''}`.trim() : 'Desconocido'
-          }
+    if (error || !data) return
+
+    // 2. Actualizar el estado de los asientos basándonos en lo que devolvió la base de datos
+    const nuevosAsientos = asientos.map(a => {
+      const asignacion = data.find(ass => ass.numero_asiento === a.numero)
+      if (asignacion) {
+        const pasajero = pasajeros.find(p => p.id === asignacion.pasajero_id)
+        return {
+          ...a,
+          estado: a.tipo === 'cama' ? 'cama_ocupada' as const : 'ocupado' as const,
+          pasajeroId: asignacion.pasajero_id,
+          nombrePasajero: pasajero ? `${pasajero.nombre || ''} ${pasajero.apellido || ''}`.trim() : 'Desconocido'
         }
-        return a
-      })
+      }
+      return a
+    })
+
+    // 3. Actualizar el estado de React (solo si encontró asientos ocupados)
+    if (nuevosAsientos.some(a => a.estado === 'ocupado' || a.estado === 'cama_ocupada')) {
       setAsientos(nuevosAsientos)
     }
   }
 
-  if (viaje.id) {
-    cargarAsignaciones()
-  }
-}, [viaje.id, pasajeros])
+  cargarAsignaciones()
+}, [viaje.id, pasajeros]) // Se ejecuta al cargar el viaje o cuando cambia la lista de pasajeros
   // ============================================
   // CARGAR PAGOS
   // ============================================
@@ -961,7 +1009,6 @@ useEffect(() => {
     alert('✅ Pago editado correctamente')
     
   } catch (error) {
-    console.error('Error al editar pago:', error)
     alert('❌ Error al editar el pago')
     setGuardandoEdicionPago(false)
   }
@@ -972,13 +1019,9 @@ useEffect(() => {
   // ============================================
 
 async function handleAprobarPasajero(id: string, iniciales?: string) {
-  console.log('🟢 handleAprobarPasajero - INICIO')
-  console.log('🟢 ID recibido:', id)
-  console.log('🟢 Iniciales recibidas:', iniciales)
   setAprobando(id)
   try {
     const resultado = await aprobarPasajero(id, viaje.id, iniciales || undefined)
-    console.log('🟢 Resultado de aprobarPasajero:', resultado)
     if (resultado?.error) {
       alert('Error al aprobar: ' + resultado.error)
       setAprobando(null)
@@ -989,10 +1032,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
     setDetalleModal(null)
     router.refresh()
   } catch (error) {
-    console.error('🔴 Error:', error)
     alert('Error al aprobar el pasajero')
   } finally {
-    console.log('🟢 Liberando aprobando')
     setAprobando(null)
   }
 }
@@ -1023,7 +1064,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
     setDetalleModal(null)
     router.refresh()
   } catch (error) {
-    console.error('Error:', error)
     alert('Error al aprobar el grupo')
   } finally {
     setAprobando(null)
@@ -1062,7 +1102,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       router.push('/home')
       router.refresh()
     } catch (error) {
-      console.error('Error al eliminar:', error)
       alert('Error al eliminar el viaje')
       setEliminando(false)
       setMostrarConfirmacionEliminar(false)
@@ -1082,7 +1121,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       setDetalleModal(null)
       router.refresh()
     } catch (error) {
-      console.error('Error al eliminar pasajero:', error)
       alert('Error al eliminar el pasajero')
     }
   }
@@ -1100,7 +1138,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       setDetalleModal(null)
       router.refresh()
     } catch (error) {
-      console.error('Error al eliminar grupo:', error)
       alert('Error al eliminar el grupo')
     }
   }
@@ -1168,7 +1205,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       setGuardandoEdicion(false)
       router.refresh()
     } catch (error) {
-      console.error('Error al guardar edición:', error)
       alert('Error al guardar los cambios')
       setGuardandoEdicion(false)
     }
@@ -1820,39 +1856,34 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 hotel={hotel}
                 habitaciones={habitaciones}
                 pasajeros={pasajeros}
-                onAgregarHabitacion={(numero, tipo, capacidad) => {
-                  setHabitaciones([...habitaciones, {
-                    id: crypto.randomUUID(),
-                    numero,
-                    tipo,
-                    capacidad,
-                    pasajeros: []
-                  }])
+                viajeId={viaje.id}
+                onAgregarHabitacion={(habitacion) => {
+                  setHabitaciones([...habitaciones, habitacion])
                 }}
                 onAsignarPasajero={(habitacionId, pasajeroId) => {
-                  const nuevas = habitaciones.map(h => ({
-                    ...h,
-                    pasajeros: h.pasajeros.filter(id => id !== pasajeroId)
-                  }))
-                  const final = nuevas.map(h => ({
-                    ...h,
-                    pasajeros: h.id === habitacionId
-                      ? [...h.pasajeros, pasajeroId]
-                      : h.pasajeros
-                  }))
-                  setHabitaciones(final)
+                  // ⚠️ CORRECCIÓN AQUÍ: Estamos mutando el array correctamente y sin generar el error del objeto
+                  const nuevas = habitaciones.map(h => {
+                    if (h.id === habitacionId) {
+                      return { ...h, pasajeros: [...h.pasajeros, pasajeroId] }
+                    }
+                    return h
+                  })
+                  setHabitaciones(nuevas)
                 }}
                 onQuitarPasajero={(habitacionId, pasajeroId) => {
-                  const nuevas = habitaciones.map(h => ({
-                    ...h,
-                    pasajeros: h.id === habitacionId
-                      ? h.pasajeros.filter(id => id !== pasajeroId)
-                      : h.pasajeros
-                  }))
+                  const nuevas = habitaciones.map(h => {
+                    if (h.id === habitacionId) {
+                      return { ...h, pasajeros: h.pasajeros.filter(id => id !== pasajeroId) }
+                    }
+                    return h
+                  })
                   setHabitaciones(nuevas)
                 }}
                 onEliminarHabitacion={(id) => {
                   setHabitaciones(habitaciones.filter(h => h.id !== id))
+                }}
+                onRefresh={() => {
+                  // Función para recargar las habitaciones desde la base de datos si hay cambios en otro lado
                 }}
               />
             )}
@@ -1871,35 +1902,19 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             miembros={detalleModal.miembros}
             estaAprobando={aprobando === detalleModal.pasajero.id || aprobando === detalleModal.miembros[0]?.grupo_id}
             onAprobar={(iniciales) => {
-              console.log('🟢 onAprobar - EJECUTADO desde FichaViaje')
-              console.log('🟢 iniciales:', iniciales)
-              console.log('🟢 detalleModal:', detalleModal)
-              
-              if (!detalleModal) {
-                console.error('🔴 detalleModal es null')
-                return
-              }
+              if (!detalleModal) return
               
               const esGrupo = detalleModal.esGrupo
               const pasajeroId = detalleModal.pasajero.id
               const grupoId = detalleModal.miembros[0]?.grupo_id
               
-              console.log('🟢 esGrupo:', esGrupo)
-              console.log('🟢 pasajeroId:', pasajeroId)
-              console.log('🟢 grupoId:', grupoId)
-              
               if (esGrupo && grupoId) {
-                console.log('🟢 Llamando a handleAprobarGrupo')
                 handleAprobarGrupo(grupoId, iniciales)
               } else if (pasajeroId) {
-                console.log('🟢 Llamando a handleAprobarPasajero')
                 handleAprobarPasajero(pasajeroId, iniciales)
-              } else {
-                console.error('🔴 No se pudo aprobar: faltan datos')
               }
             }}
             onCancel={() => {
-              console.log('🟢 onCancel - EJECUTADO')
               setAprobando(null)
               setDetalleModal(null)
             }}

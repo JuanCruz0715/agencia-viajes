@@ -41,12 +41,15 @@ type Pasajero = {
 }
 
 type Props = {
-  pasajeros: Pasajero[]
+  pasajeros: Pasajero[] | null | undefined
   viajeNombre: string
 }
 
 export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props) {
   const [exportando, setExportando] = useState(false)
+
+  // ✅ VALIDACIÓN ROBUSTA
+  const pasajerosArray = Array.isArray(pasajeros) ? pasajeros : []
 
   const agruparYNumerarFamilias = (lista: Pasajero[]) => {
     const grupos: Record<string, Pasajero[]> = {}
@@ -91,7 +94,13 @@ export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props
   const exportarExcel = () => {
     setExportando(true)
     try {
-      const pasajerosConFamilia = agruparYNumerarFamilias(pasajeros)
+      const pasajerosConFamilia = agruparYNumerarFamilias(pasajerosArray)
+      
+      if (pasajerosConFamilia.length === 0) {
+        alert('No hay pasajeros para exportar')
+        setExportando(false)
+        return
+      }
       
       const datos = pasajerosConFamilia.map((p) => ({
         'N° Familia': p.numeroFamilia,
@@ -160,13 +169,15 @@ export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props
       XLSX.utils.book_append_sheet(wb, ws, 'Pasajeros')
       XLSX.writeFile(wb, `Pasajeros_${viajeNombre}_${new Date().toLocaleDateString()}.xlsx`)
     } catch (error) {
-      console.error('Error al exportar:', error)
       alert('Error al exportar el archivo')
     }
     setExportando(false)
   }
 
-  if (pasajeros.length === 0) return null
+  // ✅ Si no hay pasajeros, no mostrar el botón
+  if (!pasajerosArray || pasajerosArray.length === 0) {
+    return null
+  }
 
   return (
     <button
