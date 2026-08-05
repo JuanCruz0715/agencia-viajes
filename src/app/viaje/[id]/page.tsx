@@ -29,7 +29,7 @@ export default async function ViajePage({ params }: { params: Promise<{ id: stri
         viaje={viaje} 
         pasajeros={pasajerosArray} 
         hojaRuta={hojaRutaArray}
-        viajeId={id}
+        
       />
     </DebugErrorBoundary>
   )
