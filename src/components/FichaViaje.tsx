@@ -17,6 +17,7 @@ import ContenidoAsientos from '@/components/ContenidoAsientos'
 import ContenidoItinerario from '@/components/ContenidoItinerario'
 import ContenidoHoteles from '@/components/ContenidoHoteles'
 import BotonExportarAsientos from '@/components/BotonExportarAsientos'
+import BotonDeshacerPago from '@/components/BotonDeshacerPago' // ✅ NUEVO IMPORT
 import { createClient } from '@/lib/supabase/client'
 
 // ============================================
@@ -271,7 +272,7 @@ const generarAsientos = (): Asiento[] => {
       tipo: 'cama',
       nombrePasajero: undefined,
       pasajeroId: undefined,
-      recargo_asiento: (i >= 1 && i <= 4) ? 10000 : 0 // ✅ SOLO 1,2,3,4
+      recargo_asiento: (i >= 1 && i <= 4) ? 10000 : 0
     })
   }
   
@@ -283,7 +284,7 @@ const generarAsientos = (): Asiento[] => {
       tipo: 'semi_cama',
       nombrePasajero: undefined,
       pasajeroId: undefined,
-      recargo_asiento: (i >= 45 && i <= 56) ? 10000 : 0 // ✅ SOLO 45-56
+      recargo_asiento: (i >= 45 && i <= 56) ? 10000 : 0
     })
   }
   
@@ -319,14 +320,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
   const [miembrosGrupo, setMiembrosGrupo] = useState<MiembroGrupoPago[]>([])
   const [cancelando, setCancelando] = useState<Pasajero | null>(null)
   const [procesandoCancelacion, setProcesandoCancelacion] = useState(false)
-  const [deshacerModal, setDeshacerModal] = useState<{
-    id: string
-    monto: number
-    metodo_pago: string
-    numero_recibo: number
-    pasajero_nombre: string
-  } | null>(null)
-  const [procesandoDeshacer, setProcesandoDeshacer] = useState(false)
+  // ✅ Eliminamos 'deshacerModal' porque ahora usamos BotonDeshacerPago
   const [historialPagos, setHistorialPagos] = useState<{
     pasajeroId: string
     nombre: string
@@ -740,10 +734,8 @@ useEffect(() => {
   cargarHabitaciones()
 }, [viaje.id]) // Se ejecuta cada vez que cambia el ID del viaje
 
-
-
 // ============================================
-// CARGAR ASIGNACIONES DE ASIENTOS (AGREGAR ESTO)
+// CARGAR ASIGNACIONES DE ASIENTOS
 // ============================================
 useEffect(() => {
   const cargarAsignaciones = async () => {
@@ -782,6 +774,7 @@ useEffect(() => {
 
   cargarAsignaciones()
 }, [viaje.id, pasajeros]) // Se ejecuta al cargar el viaje o cuando cambia la lista de pasajeros
+
   // ============================================
   // CARGAR PAGOS
   // ============================================
@@ -807,7 +800,7 @@ useEffect(() => {
   // HANDLERS DE PAGOS
   // ============================================
 
-  async function handleRegistrarPago(
+    async function handleRegistrarPago(
     pasajeroId: string,
     monto: number,
     metodo: string,
@@ -816,6 +809,10 @@ useEffect(() => {
     recargo?: number
   ) {
     if (!monto || monto <= 0) return
+
+    // ✅ Evita hacer clic dos veces seguidas mientras se procesa
+    if (aprobando === pasajeroId) return
+
     setAprobando(pasajeroId)
     const resultado = await registrarPago(
       pasajeroId,
@@ -829,13 +826,19 @@ useEffect(() => {
       recargo
     )
     setAprobando(null)
-    setPasajeroModal(null)
+
     if (resultado.pagoId) {
+      // ✅ El modal se cierra SOLO si el pago fue exitoso
+      setPasajeroModal(null)
+      router.refresh()
       window.open(`/recibo/${resultado.pagoId}`, '_blank')
+    } else {
+      // Si falló, no cerramos el modal para que el usuario pueda reintentar
+      alert('Hubo un problema al registrar el pago. Inténtalo de nuevo.')
     }
   }
 
-  async function handleRegistrarPagoGrupal(
+    async function handleRegistrarPagoGrupal(
     miembrosIds: string[],
     monto: number,
     metodo: string,
@@ -844,6 +847,10 @@ useEffect(() => {
     recargo?: number
   ) {
     if (!monto || monto <= 0) return
+
+    // ✅ Evita hacer clic dos veces seguidas mientras se procesa
+    if (aprobando === 'grupo') return
+
     setAprobando('grupo')
 
     const supabase = createClient()
@@ -902,26 +909,16 @@ useEffect(() => {
     }
 
     setAprobando(null)
-    setPasajeroModal(null)
-    setPagoGrupal(false)
-    setMiembrosGrupo([])
-    router.refresh()
 
     if (resultado.pagoId) {
-      window.open(`/recibo/${resultado.pagoId}`, '_blank')
-    }
-  }
-
-  async function handleDeshacerPago(motivo: string) {
-    if (!deshacerModal) return
-    setProcesandoDeshacer(true)
-    const resultado = await deshacerPago(deshacerModal.id, motivo)
-    setProcesandoDeshacer(false)
-    setDeshacerModal(null)
-    if (resultado.error) {
-      alert('Error al deshacer el pago: ' + resultado.error)
-    } else {
+      // ✅ Todo el reseteo y cierre se hace SOLO si el pago fue exitoso
+      setPasajeroModal(null)
+      setPagoGrupal(false)
+      setMiembrosGrupo([])
       router.refresh()
+      window.open(`/recibo/${resultado.pagoId}`, '_blank')
+    } else {
+      alert('Hubo un problema al registrar el pago grupal. Inténtalo de nuevo.')
     }
   }
 
@@ -1069,6 +1066,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
     setAprobando(null)
   }
 }
+
   // ============================================
   // HANDLERS DE ELIMINACIÓN
   // ============================================
@@ -1678,20 +1676,17 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                               <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
                                 ✅ Pagado
                               </span>
-                              <button
-                                onClick={() => {
-                                  setDeshacerModal({
-                                    id: p.id,
-                                    monto: p.monto_pagado || 0,
-                                    metodo_pago: 'No especificado',
-                                    numero_recibo: 0,
-                                    pasajero_nombre: `${p.nombre} ${p.apellido}`
-                                  })
+                              {/* ✅ BOTÓN DESHACER CON EL NUEVO COMPONENTE */}
+                              <BotonDeshacerPago
+                                pagoId={p.id}
+                                monto={p.monto_pagado || 0}
+                                metodoPago={p.metodo_pago || 'No especificado'}
+                                numeroRecibo={p.numero_recibo || 0}
+                                pasajeroNombre={`${p.nombre || ''} ${p.apellido || ''}`.trim()}
+                                onDeshacer={() => {
+                                  router.refresh()
                                 }}
-                                className="text-xs px-2 py-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                              >
-                                Deshacer
-                              </button>
+                              />
                             </>
                           ) : (
                             <button
@@ -1834,7 +1829,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       }
       quitarRecargo()
     }}
-    viajeId={viaje.id} // ✅ AGREGAR ESTA LÍNEA
+    viajeId={viaje.id}
   />
   </div>
 )}
@@ -1861,7 +1856,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                   setHabitaciones([...habitaciones, habitacion])
                 }}
                 onAsignarPasajero={(habitacionId, pasajeroId) => {
-                  // ⚠️ CORRECCIÓN AQUÍ: Estamos mutando el array correctamente y sin generar el error del objeto
                   const nuevas = habitaciones.map(h => {
                     if (h.id === habitacionId) {
                       return { ...h, pasajeros: [...h.pasajeros, pasajeroId] }
@@ -2003,104 +1997,6 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
               }
             }}
           />
-        )}
-
-        {/* Modal Deshacer Pago */}
-        {deshacerModal && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-200">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                  <span className="text-red-600 text-xl">⚠️</span>
-                </div>
-                <h3 className="text-xl font-bold text-gray-900">Deshacer pago</h3>
-              </div>
-
-              <p className="text-sm text-gray-700 mb-4">
-                Estás por deshacer el pago de <strong className="text-gray-900">{deshacerModal.pasajero_nombre}</strong>
-              </p>
-
-              <div className="bg-gray-100 rounded-lg p-4 mb-4 border border-gray-300">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Detalle del pago</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <span className="text-gray-600 font-medium">Recibo Nº:</span>
-                  <span className="text-gray-900 font-bold">{deshacerModal.numero_recibo || '---'}</span>
-                  <span className="text-gray-600 font-medium">Monto:</span>
-                  <span className="text-gray-900 font-bold">${deshacerModal.monto?.toLocaleString() || 0}</span>
-                  <span className="text-gray-600 font-medium">Método:</span>
-                  <span className="text-gray-900 font-medium">{deshacerModal.metodo_pago || 'No especificado'}</span>
-                </div>
-              </div>
-
-              <form onSubmit={(e) => {
-                e.preventDefault()
-                const form = e.target as HTMLFormElement
-                const motivoSelect = form.querySelector('select') as HTMLSelectElement
-                const motivoOtro = form.querySelector('input[type="text"]') as HTMLInputElement
-                let motivo = motivoSelect.value
-                if (motivo === 'Otro' && motivoOtro) {
-                  motivo = motivoOtro.value
-                }
-                if (motivo) {
-                  handleDeshacerPago(motivo)
-                }
-              }} className="space-y-4">
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 block mb-1">
-                    Motivo del deshacer <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    className="w-full border-2 border-gray-300 rounded-lg p-2.5 text-gray-900 bg-white focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all"
-                    onChange={(e) => {
-                      const otroInput = document.getElementById('otroMotivo') as HTMLInputElement
-                      if (otroInput) {
-                        otroInput.style.display = e.target.value === 'Otro' ? 'block' : 'none'
-                      }
-                    }}
-                  >
-                    <option value="">Seleccioná un motivo</option>
-                    <option value="Pago registrado por error">Pago registrado por error</option>
-                    <option value="Monto incorrecto">Monto incorrecto</option>
-                    <option value="Pasajero canceló el viaje">Pasajero canceló el viaje</option>
-                    <option value="Se realizó un reembolso">Se realizó un reembolso</option>
-                    <option value="Otro">Otro</option>
-                  </select>
-                </div>
-
-                <div>
-                  <input
-                    id="otroMotivo"
-                    type="text"
-                    placeholder="Especificá el motivo..."
-                    className="w-full border-2 border-gray-300 rounded-lg p-2.5 text-gray-900 bg-white placeholder-gray-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all hidden"
-                  />
-                </div>
-
-                <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-300">
-                  <p className="text-xs font-semibold text-yellow-800">⚠️ Esta acción no se puede deshacer</p>
-                </div>
-
-                <div className="flex gap-2 mt-4 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setDeshacerModal(null)}
-                    className="flex-1 border-2 border-gray-300 rounded-lg py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                    disabled={procesandoDeshacer}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={procesandoDeshacer}
-                  >
-                    {procesandoDeshacer ? 'Procesando...' : 'Confirmar deshacer'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
         )}
 
         {/* Modal Historial de Pagos */}

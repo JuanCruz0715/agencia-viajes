@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+// ✅ IMPORTAMOS EL NUEVO BOTÓN
+import BotonDeshacerPago from '@/components/BotonDeshacerPago'
 
 type Pago = {
   id: string
@@ -36,9 +38,8 @@ export default function ModalHistorialPagos({
 }: Props) {
   const [pagos, setPagos] = useState<Pago[]>([])
   const [cargando, setCargando] = useState(true)
-  const [eliminando, setEliminando] = useState<string | null>(null)
 
-  // ✅ Cargar pagos - con IIFE (función auto-ejecutable)
+  // ✅ Cargar pagos
   useEffect(() => {
     let isMounted = true
 
@@ -71,7 +72,7 @@ export default function ModalHistorialPagos({
     }
   }, [pasajeroId])
 
-  // ✅ Función para recargar pagos (se usa después de eliminar)
+  // ✅ Función para recargar pagos después de eliminar
   const recargarPagos = async () => {
     setCargando(true)
     try {
@@ -101,69 +102,6 @@ export default function ModalHistorialPagos({
       window.open(`/recibo/${pagoId}`, '_blank')
     } else {
       alert('Este pago no tiene un recibo asociado')
-    }
-  }
-
-  // ✅ Función para ELIMINAR el pago
-  const eliminarPago = async (pago: Pago) => {
-    if (!confirm(`¿Eliminar este pago de $${pago.monto.toLocaleString()}?\n\nEl pasajero quedará con el monto actualizado.`)) {
-      return
-    }
-
-    setEliminando(pago.id)
-    const supabase = createClient()
-
-    try {
-      // 1. Eliminar el pago (soft delete)
-      const { error: errorPago } = await supabase
-        .from('pagos')
-        .update({
-          eliminado: true,
-          fecha_eliminacion: new Date().toISOString(),
-          motivo_eliminacion: 'Eliminado por usuario'
-        })
-        .eq('id', pago.id)
-
-      if (errorPago) throw errorPago
-
-      // 2. Recalcular monto_pagado del pasajero
-      const { data: pagosRestantes } = await supabase
-        .from('pagos')
-        .select('monto')
-        .eq('pasajero_id', pasajeroId)
-        .eq('eliminado', false)
-
-      const nuevoMontoPagado = pagosRestantes?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
-
-      const { data: pasajero } = await supabase
-        .from('pasajeros')
-        .select('monto_total')
-        .eq('id', pasajeroId)
-        .single()
-
-      const estaPagado = nuevoMontoPagado >= (pasajero?.monto_total || 0)
-
-      await supabase
-        .from('pasajeros')
-        .update({
-          monto_pagado: nuevoMontoPagado,
-          estado_pago: estaPagado ? 'pagado' : 'pendiente'
-        })
-        .eq('id', pasajeroId)
-
-      // 3. Recargar la lista de pagos
-      await recargarPagos()
-      
-      // 4. Notificar al padre
-      if (onPagoEliminado) onPagoEliminado()
-
-      alert('✅ Pago eliminado correctamente')
-
-    } catch (error) {
-      console.error('Error al eliminar pago:', error)
-      alert('❌ Error al eliminar el pago')
-    } finally {
-      setEliminando(null)
     }
   }
 
@@ -263,19 +201,19 @@ export default function ModalHistorialPagos({
                       </button>
                     )}
 
-                    {/* ✅ Botón Eliminar Pago */}
-                    <button
-                      onClick={() => eliminarPago(pago)}
-                      disabled={eliminando === pago.id}
-                      className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                      title="Eliminar pago"
-                    >
-                      {eliminando === pago.id ? (
-                        <span className="inline-block animate-spin h-3 w-3 border-2 border-red-400 border-t-transparent rounded-full" />
-                      ) : (
-                        '🗑️'
-                      )}
-                    </button>
+                    {/* ✅ NUEVO COMPONENTE: Botón Deshacer Pago */}
+                    <BotonDeshacerPago
+                      pagoId={pago.id}
+                      monto={pago.monto || 0}
+                      metodoPago={pago.metodo_pago || 'No especificado'}
+                      numeroRecibo={pago.numero_recibo || 0}
+                      pasajeroNombre={nombrePasajero}
+                      onDeshacer={() => {
+                        // Recargar los pagos y notificar al padre
+                        recargarPagos()
+                        if (onPagoEliminado) onPagoEliminado()
+                      }}
+                    />
                   </div>
                 </div>
               </div>
