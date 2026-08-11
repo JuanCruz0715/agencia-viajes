@@ -1676,17 +1676,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                               <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
                                 ✅ Pagado
                               </span>
-                              {/* ✅ BOTÓN DESHACER CON EL NUEVO COMPONENTE */}
-                              <BotonDeshacerPago
-                                pagoId={p.id}
-                                monto={p.monto_pagado || 0}
-                                metodoPago={p.metodo_pago || 'No especificado'}
-                                numeroRecibo={p.numero_recibo || 0}
-                                pasajeroNombre={`${p.nombre || ''} ${p.apellido || ''}`.trim()}
-                                onDeshacer={() => {
-                                  router.refresh()
-                                }}
-                              />
+                              
                             </>
                           ) : (
                             <button
