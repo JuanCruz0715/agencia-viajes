@@ -35,21 +35,6 @@ type Props = {
   viajeNombre: string
 }
 
-// ✅ Definir el tipo para las filas del Excel
-type FilaExcel = {
-  'Grupo/Pasajero': string | number
-  'Integrantes': string | number
-  'Monto': string | number
-  'Método de pago': string
-  'Recibo N°': string
-  'Fecha': string
-  'Tipo de tarjeta': string
-  'Cuotas': string | number
-  'Recargo': string
-  'Notas': string
-  'Tipo de pago': string
-}
-
 export default function BotonExportarPagos({ pagos, pasajeros, viajeNombre }: Props) {
   
   const exportarExcel = () => {
@@ -64,165 +49,106 @@ export default function BotonExportarPagos({ pagos, pasajeros, viajeNombre }: Pr
       pasajerosMap.set(p.id, p)
     })
 
-    // Agrupar pagos por grupo
-    const grupos: Record<string, { 
+    // 1. Agrupar pagos por GRUPOS (grupo_id)
+    const gruposMap = new Map<string, { 
       nombre: string, 
       integrantes: string[], 
       pagos: Pago[] 
-    }> = {}
+    }>()
 
     pagos.forEach(pago => {
       const pasajero = pasajerosMap.get(pago.pasajero_id)
       if (!pasajero) return
 
-      const grupoId = pago.grupo_id || pago.pasajero_id
+      // Si es pago grupal, usamos el grupo_id. Si no, usamos el ID del pasajero como "grupo" individual
+      const key = pago.es_pago_grupal && pago.grupo_id ? pago.grupo_id : pago.pasajero_id
       
-      if (!grupos[grupoId]) {
+      // Crear el grupo si no existe
+      if (!gruposMap.has(key)) {
         const nombreGrupo = pago.es_pago_grupal 
           ? `${pasajero.nombre || 'Sin nombre'} y grupo`
           : `${pasajero.nombre || 'Sin nombre'} ${pasajero.apellido || ''}`
         
-        grupos[grupoId] = {
+        gruposMap.set(key, {
           nombre: nombreGrupo,
           integrantes: [],
           pagos: []
-        }
-      }
-      
-      grupos[grupoId].pagos.push(pago)
-      
-      if (pasajero && !grupos[grupoId].integrantes.includes(pasajero.id)) {
-        grupos[grupoId].integrantes.push(pasajero.id)
-      }
-    })
-
-    // ✅ Usar el tipo definido
-    const datosExcel: FilaExcel[] = []
-
-    // Agregar header con información del viaje
-    datosExcel.push({
-      'Grupo/Pasajero': 'Viaje',
-      'Integrantes': viajeNombre,
-      'Monto': '',
-      'Método de pago': '',
-      'Recibo N°': '',
-      'Fecha': new Date().toLocaleDateString('es-AR'),
-      'Tipo de tarjeta': '',
-      'Cuotas': '',
-      'Recargo': '',
-      'Notas': `Total pagos: ${pagos.length}`,
-      'Tipo de pago': `Total: $${pagos.reduce((sum, p) => sum + p.monto, 0).toLocaleString()}`
-    })
-    datosExcel.push({
-      'Grupo/Pasajero': '',
-      'Integrantes': '',
-      'Monto': '',
-      'Método de pago': '',
-      'Recibo N°': '',
-      'Fecha': '',
-      'Tipo de tarjeta': '',
-      'Cuotas': '',
-      'Recargo': '',
-      'Notas': '',
-      'Tipo de pago': ''
-    })
-
-    // Headers de la tabla
-    datosExcel.push({
-      'Grupo/Pasajero': 'Grupo/Pasajero',
-      'Integrantes': 'Integrantes',
-      'Monto': 'Monto',
-      'Método de pago': 'Método de pago',
-      'Recibo N°': 'Recibo N°',
-      'Fecha': 'Fecha',
-      'Tipo de tarjeta': 'Tipo de tarjeta',
-      'Cuotas': 'Cuotas',
-      'Recargo': 'Recargo',
-      'Notas': 'Notas',
-      'Tipo de pago': 'Tipo de pago'
-    })
-
-    // Datos de cada grupo
-    Object.values(grupos).forEach(grupo => {
-      grupo.pagos.forEach((pago, index) => {
-        datosExcel.push({
-          'Grupo/Pasajero': index === 0 ? grupo.nombre : '',
-          'Integrantes': index === 0 ? grupo.integrantes.length : '',
-          'Monto': pago.monto,
-          'Método de pago': pago.metodo_pago || 'No especificado',
-          'Recibo N°': pago.numero_recibo?.toString() || '---',
-          'Fecha': new Date(pago.created_at).toLocaleDateString('es-AR'),
-          'Tipo de tarjeta': pago.tipo_tarjeta || '-',
-          'Cuotas': pago.cantidad_cuotas || '-',
-          'Recargo': pago.recargo_aplicado ? `$${pago.recargo_aplicado}` : '-',
-          'Notas': pago.notas || '-',
-          'Tipo de pago': pago.es_pago_grupal ? 'Grupal' : 'Individual'
         })
-      })
-
-      // Fila con total del grupo
-      datosExcel.push({
-        'Grupo/Pasajero': '',
-        'Integrantes': '',
-        'Monto': '',
-        'Método de pago': '',
-        'Recibo N°': '',
-        'Fecha': '',
-        'Tipo de tarjeta': '',
-        'Cuotas': '',
-        'Recargo': '',
-        'Notas': '',
-        'Tipo de pago': ''
-      })
+      }
+      
+      // Agregar el pago al grupo
+      const grupo = gruposMap.get(key)!
+      grupo.pagos.push(pago)
+      
+      // Agregar el pasajero a la lista de integrantes (sin duplicar)
+      if (!grupo.integrantes.includes(pasajero.nombre || '')) {
+        grupo.integrantes.push(`${pasajero.nombre || ''} ${pasajero.apellido || ''}`.trim() || 'Sin nombre')
+      }
     })
 
-    // Agregar fila de total general
-    datosExcel.push({
-      'Grupo/Pasajero': '',
-      'Integrantes': '',
-      'Monto': '',
-      'Método de pago': '',
-      'Recibo N°': '',
-      'Fecha': '',
-      'Tipo de tarjeta': '',
-      'Cuotas': '',
-      'Recargo': '',
-      'Notas': '',
-      'Tipo de pago': ''
-    })
-    datosExcel.push({
-      'Grupo/Pasajero': 'TOTAL GENERAL',
-      'Integrantes': '',
-      'Monto': `$${pagos.reduce((sum, p) => sum + p.monto, 0).toLocaleString()}`,
-      'Método de pago': '',
-      'Recibo N°': '',
-      'Fecha': '',
-      'Tipo de tarjeta': '',
-      'Cuotas': '',
-      'Recargo': '',
-      'Notas': '',
-      'Tipo de pago': ''
+    // 2. Construir las filas del Excel
+    const datosExcel: any[] = []
+
+    // Encabezados
+    datosExcel.push([
+      'Grupo / Pasajero',
+      'Integrantes',
+      'Historial de Pagos (Montos, fechas, tarjeta y cuotas)',
+      'Total Pagado'
+    ])
+
+    // Procesar cada grupo/pasajero
+    gruposMap.forEach((grupo, key) => {
+      // Calcular el total pagado por este grupo
+      const totalGrupo = grupo.pagos.reduce((sum, p) => sum + p.monto, 0)
+
+      // Crear el string con el detalle de cada pago (¡Aquí está el cambio!)
+      const detallePagos = grupo.pagos.map(p => {
+        const fecha = new Date(p.created_at).toLocaleDateString('es-AR')
+        const recibo = p.numero_recibo ? `#${p.numero_recibo}` : ''
+        
+        // ✅ Agregamos la info de tarjeta y cuotas
+        let infoTarjeta = ''
+        if (p.metodo_pago === 'Tarjeta' && p.tipo_tarjeta) {
+          const tipoCapitalizado = p.tipo_tarjeta.charAt(0).toUpperCase() + p.tipo_tarjeta.slice(1)
+          const cuotasTexto = p.cantidad_cuotas && p.cantidad_cuotas > 1 ? ` - ${p.cantidad_cuotas} cuotas` : ''
+          const recargoTexto = p.recargo_aplicado && p.recargo_aplicado > 0 ? ` (Recargo: ${p.recargo_aplicado}%)` : ''
+          infoTarjeta = ` [${tipoCapitalizado}${cuotasTexto}${recargoTexto}]`
+        }
+
+        return `$${p.monto.toLocaleString()} (${fecha} - ${p.metodo_pago || 'Efectivo'} ${recibo}${infoTarjeta})`
+      }).join('; ')
+
+      // Armar la fila
+      datosExcel.push([
+        grupo.nombre,
+        grupo.integrantes.join(', '),
+        detallePagos,
+        `$${totalGrupo.toLocaleString()}`
+      ])
     })
 
-    // Crear libro de Excel
+    // Fila final de total general
+    const totalGeneral = pagos.reduce((sum, p) => sum + p.monto, 0)
+    datosExcel.push([])
+    datosExcel.push([
+      'TOTAL GENERAL',
+      '',
+      '',
+      `$${totalGeneral.toLocaleString()}`
+    ])
+
+    // 3. Crear libro de Excel
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(datosExcel)
+    const ws = XLSX.utils.aoa_to_sheet(datosExcel)
 
     // Ajustar ancho de columnas
-    const colWidths = [
-      { wch: 30 }, // Grupo/Pasajero
-      { wch: 12 }, // Integrantes
-      { wch: 15 }, // Monto
-      { wch: 18 }, // Método de pago
-      { wch: 12 }, // Recibo N°
-      { wch: 15 }, // Fecha
-      { wch: 15 }, // Tipo de tarjeta
-      { wch: 10 }, // Cuotas
-      { wch: 12 }, // Recargo
-      { wch: 25 }, // Notas
-      { wch: 15 }, // Tipo de pago
+    ws['!cols'] = [
+      { wch: 30 }, // Grupo / Pasajero
+      { wch: 40 }, // Integrantes
+      { wch: 100 }, // Historial de Pagos (Ancho mayor para que quepa la info de tarjetas)
+      { wch: 18 }, // Total Pagado
     ]
-    ws['!cols'] = colWidths
 
     XLSX.utils.book_append_sheet(wb, ws, 'Pagos')
     

@@ -19,18 +19,24 @@ import ContenidoHoteles from '@/components/ContenidoHoteles'
 import BotonExportarAsientos from '@/components/BotonExportarAsientos'
 import BotonDeshacerPago from '@/components/BotonDeshacerPago' // ✅ NUEVO IMPORT
 import { createClient } from '@/lib/supabase/client'
+import { Bricolage_Grotesque, IBM_Plex_Mono } from 'next/font/google'
+
+const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['600', '700', '800'], variable: '--font-display' })
+const mono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-mono' })
 
 // ============================================
-// CONSTANTES
+// CONSTANTES — misma paleta que el home
 // ============================================
 
-const SN_AZUL = '#1B3A5C'
-const SN_CELESTE = '#2D9CB8'
-const SN_AMARILLO = '#F2B632'
-const BG_PAGINA = '#0B1620'
-const BG_CARD = '#15212C'
-const BORDE = '#1E2D3D'
-const TEXTO_MUTED = '#9FB3C2'
+const SN_AZUL = '#1B3A5C'      // navbar / marca
+const INK = '#12131C'          // fondo principal (antes BG_PAGINA)
+const PANEL = '#1B1D2B'        // tarjetas / modales (antes BG_CARD)
+const LINE = '#2C2E42'         // bordes (antes BORDE)
+const CHALK_DIM = '#9CA0B8'    // texto secundario (antes TEXTO_MUTED)
+const CORAL = '#E8734A'        // acento de acción / urgencia (antes SN_AMARILLO en CTAs)
+const GOLD = '#D9A441'         // pendiente / advertencia
+const ROUTE = '#5FB8AD'        // completado / info (antes SN_CELESTE)
+const ROJO = '#DC2626'         // destructivo (se mantiene, ya es semánticamente distinto)
 
 // ============================================
 // TIPOS
@@ -263,7 +269,7 @@ function calcularEdad(fechaNacimiento: string | null | undefined) {
 // Generar asientos (60 asientos: 12 cama + 48 semi cama)
 const generarAsientos = (): Asiento[] => {
   const asientos: Asiento[] = []
-  
+
   // Asientos cama (1-12) - TODOS LIBRES
   for (let i = 1; i <= 12; i++) {
     asientos.push({
@@ -275,7 +281,7 @@ const generarAsientos = (): Asiento[] => {
       recargo_asiento: (i >= 1 && i <= 4) ? 10000 : 0
     })
   }
-  
+
   // Asientos semi cama (13-60) - TODOS DISPONIBLES
   for (let i = 13; i <= 60; i++) {
     asientos.push({
@@ -287,7 +293,7 @@ const generarAsientos = (): Asiento[] => {
       recargo_asiento: (i >= 45 && i <= 56) ? 10000 : 0
     })
   }
-  
+
   return asientos
 }
 
@@ -408,7 +414,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
     .select('*')
     .neq('id', viaje.id)
     .order('fecha_inicio', { ascending: true })
-    
+
   if (!error && data) {
     const viajesConCupos = await Promise.all(data.map(async (v) => {
       const { count } = await supabase
@@ -416,7 +422,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
         .select('*', { count: 'exact', head: true })
         .eq('viaje_id', v.id)
         .eq('estado_revision', 'aprobado')
-      
+
       return {
         ...v,
         cupos_disponibles: v.cupo_total - (count || 0)
@@ -432,7 +438,7 @@ export default function FichaViaje({ viaje, pasajeros, hojaRuta }: { viaje: Viaj
 
 const recalcularMontoTotal = async (pasajeroId: string) => {
   const supabase = createClient()
-  
+
   try {
     // Obtener el pasajero
     const { data: pasajero, error: errorPasajero } = await supabase
@@ -440,40 +446,40 @@ const recalcularMontoTotal = async (pasajeroId: string) => {
       .select('viaje_id, seguro_incluido, fecha_nacimiento, recargo_asiento')
       .eq('id', pasajeroId)
       .single()
-    
+
     if (errorPasajero || !pasajero) return
-    
+
     // Obtener el viaje
     const { data: viajeData, error: errorViaje } = await supabase
       .from('viajes')
       .select('precio, precio_seguro, rangos_edad')
       .eq('id', pasajero.viaje_id)
       .single()
-    
+
     if (errorViaje || !viajeData) return
-    
+
     // Calcular precio base según edad
     const edad = calcularEdad(pasajero.fecha_nacimiento)
     let precioBase = viajeData.precio || 0
-    
+
     if (edad !== null && viajeData.rangos_edad && viajeData.rangos_edad.length > 0) {
       const rango = viajeData.rangos_edad.find((r: RangoEdad) => edad >= r.edad_min && edad <= r.edad_max)
       if (rango) {
         precioBase = rango.precio
       }
     }
-    
+
     // Sumar seguro si corresponde
     const precioSeguro = pasajero.seguro_incluido ? (viajeData.precio_seguro || 20000) : 0
     const recargoAsiento = pasajero.recargo_asiento || 0
     const nuevoMontoTotal = precioBase + precioSeguro + recargoAsiento
-    
+
     // Actualizar el monto_total del pasajero
     await supabase
       .from('pasajeros')
       .update({ monto_total: nuevoMontoTotal })
       .eq('id', pasajeroId)
-    
+
     return nuevoMontoTotal
   } catch (error) {
     // Error ignorado (sin console.error)
@@ -485,23 +491,23 @@ const recalcularMontoTotal = async (pasajeroId: string) => {
 // ============================================
 const handleGuardarMontoTotal = async () => {
   if (!editandoMontoTotal) return
-  
+
   setGuardandoMontoTotal(true)
   const supabase = createClient()
-  
+
   try {
     const { error } = await supabase
       .from('pasajeros')
       .update({ monto_total: editandoMontoTotal.montoTotal })
       .eq('id', editandoMontoTotal.pasajeroId)
-    
+
     if (error) throw error
-    
+
     setEditandoMontoTotal(null)
     setGuardandoMontoTotal(false)
     router.refresh()
     alert('✅ Monto total actualizado correctamente')
-    
+
   } catch (error) {
     alert('❌ Error al editar el monto total')
     setGuardandoMontoTotal(false)
@@ -513,30 +519,30 @@ const handleGuardarMontoTotal = async () => {
 // ============================================
 const handleGuardarMontoGrupal = async () => {
   if (!editandoMontoGrupal) return
-  
+
   setGuardandoMontoTotal(true)
   const supabase = createClient()
-  
+
   try {
     // Calcular el nuevo monto por pasajero (dividir equitativamente)
     const cantidadMiembros = editandoMontoGrupal.miembros.length
     const montoPorPasajero = Math.round(editandoMontoGrupal.montoTotal / cantidadMiembros)
-    
+
     // Actualizar cada miembro del grupo
     for (const miembro of editandoMontoGrupal.miembros) {
       const { error } = await supabase
         .from('pasajeros')
         .update({ monto_total: montoPorPasajero })
         .eq('id', miembro.id)
-      
+
       if (error) throw error
     }
-    
+
     setEditandoMontoGrupal(null)
     setGuardandoMontoTotal(false)
     router.refresh()
     alert(`✅ Monto total del grupo actualizado correctamente\nCada pasajero: $${montoPorPasajero.toLocaleString()}`)
-    
+
   } catch (error) {
     alert('❌ Error al editar el monto total del grupo')
     setGuardandoMontoTotal(false)
@@ -545,21 +551,21 @@ const handleGuardarMontoGrupal = async () => {
 
 const handleMoverPasajero = async () => {
   if (!pasajeroAMover || !viajeSeleccionado) return
-  
+
   setMoviendoPasajero(true)
   const supabase = createClient()
-  
+
   try {
     const { data: reservaActual, error: errorReserva } = await supabase
       .from('pasajeros')
       .select('*')
       .eq('id', pasajeroAMover.id)
       .single()
-      
+
     if (errorReserva || !reservaActual) {
       throw new Error('No se encontró la reserva del pasajero')
     }
-    
+
     const { data: grupoInfo } = await supabase
       .from('pasajeros')
       .select('grupo_id, es_titular')
@@ -575,7 +581,7 @@ const handleMoverPasajero = async () => {
         .from('pasajeros')
         .select('*')
         .eq('grupo_id', grupoId)
-      
+
       miembrosGrupo = miembros || []
     }
 
@@ -584,17 +590,17 @@ const handleMoverPasajero = async () => {
       .select('*')
       .eq('id', viaje.id)
       .single()
-      
+
     const { data: viajeDestino } = await supabase
       .from('viajes')
       .select('*')
       .eq('id', viajeSeleccionado)
       .single()
-      
+
     if (!viajeOrigen || !viajeDestino) {
       throw new Error('Viaje no encontrado')
     }
-    
+
     const precioDestino = viajeDestino.precio || 0
 
     if (esTitularGrupo && miembrosGrupo.length > 0) {
@@ -612,12 +618,12 @@ const handleMoverPasajero = async () => {
           .eq('eliminado', false)
 
         const montoPagadoReal = pagosMiembro?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
-        
+
         // Recalcular monto total con el nuevo viaje
         const nuevoMontoTotal = await recalcularMontoTotal(miembro.id) || precioDestino
         const deudaRestante = nuevoMontoTotal - montoPagadoReal
         const estaPagado = deudaRestante <= 0
-        
+
         const { error: errorUpdate } = await supabase
           .from('pasajeros')
           .update({
@@ -627,7 +633,7 @@ const handleMoverPasajero = async () => {
             estado_pago: estaPagado ? 'pagado' : 'pendiente'
           })
           .eq('id', miembro.id)
-          
+
         if (errorUpdate) throw errorUpdate
 
         const nombre = `${miembro.nombre || ''} ${miembro.apellido || ''}`.trim() || 'Sin nombre'
@@ -635,7 +641,7 @@ const handleMoverPasajero = async () => {
       }
 
       alert(mensajeGrupo)
-      
+
     } else {
       const { data: pagosPasajero } = await supabase
         .from('pagos')
@@ -644,12 +650,12 @@ const handleMoverPasajero = async () => {
         .eq('eliminado', false)
 
       const montoPagadoReal = pagosPasajero?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
-      
+
       // Recalcular monto total con el nuevo viaje
       const nuevoMontoTotal = await recalcularMontoTotal(pasajeroAMover.id) || precioDestino
       const deudaRestante = nuevoMontoTotal - montoPagadoReal
       const estaPagado = deudaRestante <= 0
-      
+
       const { error: errorUpdate } = await supabase
         .from('pasajeros')
         .update({
@@ -659,7 +665,7 @@ const handleMoverPasajero = async () => {
           estado_pago: estaPagado ? 'pagado' : 'pendiente'
         })
         .eq('id', pasajeroAMover.id)
-        
+
       if (errorUpdate) throw errorUpdate
 
       const mensaje = `
@@ -677,12 +683,12 @@ Estado: ${estaPagado ? '✅ Pagado' : `⚠️ Pendiente de pago (falta $${deudaR
       `
       alert(mensaje)
     }
-    
+
     router.replace(`/viaje/${viaje.id}`)
     setMostrarModalMover(false)
     setPasajeroAMover(null)
     setViajeSeleccionado('')
-    
+
   } catch (error) {
     alert('❌ Error al mover el pasajero. Por favor, intenta de nuevo.')
   } finally {
@@ -698,13 +704,13 @@ useEffect(() => {
     if (!viaje.id) return // Asegurar que tenemos ID
 
     const supabase = createClient()
-    
+
     // 1. Traer las habitaciones del viaje
     const { data: habitacionesData, error: errorHab } = await supabase
       .from('habitaciones')
       .select('*')
       .eq('viaje_id', viaje.id)
-    
+
     if (errorHab) return
 
     // 2. Traer todas las asignaciones de este viaje
@@ -742,7 +748,7 @@ useEffect(() => {
     if (!viaje.id) return
 
     const supabase = createClient()
-    
+
     // 1. Traer las asignaciones de asientos de la base de datos
     const { data, error } = await supabase
       .from('asignaciones_asientos')
@@ -788,7 +794,7 @@ useEffect(() => {
         .eq('viaje_id', viaje.id)
         .eq('eliminado', false)
         .order('created_at', { ascending: false })
-      
+
       if (!error && data) {
         setPagos(data)
       }
@@ -922,94 +928,94 @@ useEffect(() => {
     }
   }
 
-  // ============================================
-  // HANDLER PARA EDITAR PAGO
+   // ============================================
+  // HANDLER PARA EDITAR PAGO (CORREGIDO)
   // ============================================
 
- const handleGuardarEdicionPago = async () => {
-  if (!editandoPago) return
-  
-  setGuardandoEdicionPago(true)
-  const supabase = createClient()
-  
-  try {
-    // 1. Obtener el pago original (para saber el pasajero_id)
-    const { data: pagoOriginal, error: errorOriginal } = await supabase
-      .from('pagos')
-      .select('pasajero_id')
-      .eq('id', editandoPago.id)
-      .single()
-    
-    if (errorOriginal || !pagoOriginal) {
-      throw new Error('No se encontró el pago original')
+  const handleGuardarEdicionPago = async () => {
+    if (!editandoPago) return
+
+    setGuardandoEdicionPago(true)
+    const supabase = createClient()
+
+    try {
+      // 1. Obtener el pago original (para saber el pasajero_id)
+      const { data: pagoOriginal, error: errorOriginal } = await supabase
+        .from('pagos')
+        .select('pasajero_id')
+        .eq('id', editandoPago.id)
+        .single()
+
+      if (errorOriginal || !pagoOriginal) {
+        throw new Error('No se encontró el pago original')
+      }
+
+      // 2. Actualizar el pago con el nuevo monto
+      const { error: errorUpdate } = await supabase
+        .from('pagos')
+        .update({
+          monto: editandoPago.monto,
+          metodo_pago: editandoPago.metodo_pago,
+          tipo_tarjeta: editandoPago.tipo_tarjeta || null,
+          cantidad_cuotas: editandoPago.cuotas || null,
+          recargo_aplicado: editandoPago.recargo || 0,
+          notas: editandoPago.notas || null
+        })
+        .eq('id', editandoPago.id)
+
+      if (errorUpdate) throw errorUpdate
+
+      // 3. ✅ RECALCULAR SUMA TOTAL DE PAGOS (desde cero)
+      const { data: todosLosPagos, error: errorPagos } = await supabase
+        .from('pagos')
+        .select('monto')
+        .eq('pasajero_id', pagoOriginal.pasajero_id)
+        .eq('eliminado', false)
+
+      if (errorPagos) throw errorPagos
+
+      const nuevoMontoPagado = todosLosPagos?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
+
+      // 4. Obtener el monto_total del pasajero
+      const { data: pasajero, error: errorPasajero } = await supabase
+        .from('pasajeros')
+        .select('monto_total')
+        .eq('id', pagoOriginal.pasajero_id)
+        .single()
+
+      if (errorPasajero || !pasajero) {
+        throw new Error('No se encontró el pasajero')
+      }
+
+      const estaPagado = nuevoMontoPagado >= (pasajero.monto_total || 0)
+
+      // 5. Actualizar el pasajero con el NUEVO monto pagado
+      const { error: errorUpdatePasajero } = await supabase
+        .from('pasajeros')
+        .update({
+          monto_pagado: nuevoMontoPagado,
+          estado_pago: estaPagado ? 'pagado' : 'pendiente'
+        })
+        .eq('id', pagoOriginal.pasajero_id)
+
+      if (errorUpdatePasajero) throw errorUpdatePasajero
+
+      // ✅ PASO 6: RECALCULAR EL MONTO TOTAL DEL PASAJERO (¡Esta es la línea mágica que faltaba!)
+      await recalcularMontoTotal(pagoOriginal.pasajero_id)
+
+      // 7. Cerrar modal y recargar
+      setEditandoPago(null)
+      setGuardandoEdicionPago(false)
+
+      router.replace(`/viaje/${viaje.id}`)
+
+      alert('✅ Pago editado correctamente')
+
+    } catch (error) {
+      alert('❌ Error al editar el pago')
+      setGuardandoEdicionPago(false)
     }
-    
-    // 2. Actualizar el pago con el nuevo monto
-    const { error: errorUpdate } = await supabase
-      .from('pagos')
-      .update({
-        monto: editandoPago.monto,
-        metodo_pago: editandoPago.metodo_pago,
-        tipo_tarjeta: editandoPago.tipo_tarjeta || null,
-        cantidad_cuotas: editandoPago.cuotas || null,
-        recargo_aplicado: editandoPago.recargo || 0,
-        notas: editandoPago.notas || null
-      })
-      .eq('id', editandoPago.id)
-    
-    if (errorUpdate) throw errorUpdate
-    
-    // 3. ✅ RECALCULAR SUMA TOTAL DE PAGOS (desde cero)
-    const { data: todosLosPagos, error: errorPagos } = await supabase
-      .from('pagos')
-      .select('monto')
-      .eq('pasajero_id', pagoOriginal.pasajero_id)
-      .eq('eliminado', false)
-    
-    if (errorPagos) throw errorPagos
-    
-    const nuevoMontoPagado = todosLosPagos?.reduce((sum, p) => sum + (p.monto || 0), 0) || 0
-    
-    // 4. Obtener el monto_total del pasajero
-    const { data: pasajero, error: errorPasajero } = await supabase
-      .from('pasajeros')
-      .select('monto_total')
-      .eq('id', pagoOriginal.pasajero_id)
-      .single()
-    
-    if (errorPasajero || !pasajero) {
-      throw new Error('No se encontró el pasajero')
-    }
-    
-    const estaPagado = nuevoMontoPagado >= (pasajero.monto_total || 0)
-    
-    // 5. Actualizar el pasajero con el NUEVO monto pagado
-    const { error: errorUpdatePasajero } = await supabase
-      .from('pasajeros')
-      .update({
-        monto_pagado: nuevoMontoPagado,
-        estado_pago: estaPagado ? 'pagado' : 'pendiente'
-      })
-      .eq('id', pagoOriginal.pasajero_id)
-    
-    if (errorUpdatePasajero) throw errorUpdatePasajero
-    
-    // 6. ✅ Recalcular el monto_total del pasajero (por si cambió el seguro)
-    await recalcularMontoTotal(pagoOriginal.pasajero_id)
-    
-    // 7. Cerrar modal y recargar
-    setEditandoPago(null)
-    setGuardandoEdicionPago(false)
-    
-    router.replace(`/viaje/${viaje.id}`)
-    
-    alert('✅ Pago editado correctamente')
-    
-  } catch (error) {
-    alert('❌ Error al editar el pago')
-    setGuardandoEdicionPago(false)
   }
-}
 
   // ============================================
   // HANDLERS DE APROBACIÓN
@@ -1024,7 +1030,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       setAprobando(null)
       return
     }
-    
+
     await recalcularMontoTotal(id)
     setDetalleModal(null)
     router.refresh()
@@ -1044,20 +1050,20 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       alert('Error al aprobar: ' + resultado.error)
       return
     }
-    
+
     // ✅ Recalcular monto_total de todos los miembros del grupo
     const supabase = createClient()
     const { data: miembros } = await supabase
       .from('pasajeros')
       .select('id')
       .eq('grupo_id', grupoId)
-    
+
     if (miembros) {
       for (const miembro of miembros) {
         await recalcularMontoTotal(miembro.id)
       }
     }
-    
+
     setDetalleModal(null)
     router.refresh()
   } catch (error) {
@@ -1269,15 +1275,40 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
   const totalMenores18 = pasajeros.filter(p => p.es_menor_18).length
 
   // ============================================
+  // ESTILOS COMPARTIDOS (chips, botones, inputs)
+  // ============================================
+
+  const chipBase = 'text-xs px-2.5 py-1 rounded-full font-medium font-mono-t'
+  const inputBase = 'w-full rounded-lg px-3 py-2 text-sm focus:outline-none'
+  const inputStyle = { background: INK, border: `1px solid ${LINE}`, color: '#fff' }
+  const btnPrimary = { background: CORAL, color: INK }
+  const btnGhost = { background: 'transparent', border: `1px solid ${LINE}`, color: CHALK_DIM }
+  const btnDisabled = { background: LINE, color: '#5b5f78' }
+
+  // ============================================
   // RENDER
   // ============================================
 
   return (
-    <main className="min-h-screen" style={{ background: BG_PAGINA }}>
+    <main className={`${display.variable} ${mono.variable} min-h-screen`} style={{ background: INK, color: '#fff' }}>
+      <style jsx global>{`
+        .font-display { font-family: var(--font-display), sans-serif; }
+        .font-mono-t { font-family: var(--font-mono), monospace; }
+        .tab-btn { position: relative; padding-bottom: 12px; font-size: 14px; font-weight: 500; color: ${CHALK_DIM}; transition: color .15s ease; }
+        .tab-btn.active { color: #fff; }
+        .tab-btn.active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: ${CORAL}; border-radius: 2px; }
+        .subtab-btn { padding-bottom: 8px; font-size: 12px; font-weight: 500; color: ${CHALK_DIM}; transition: color .15s ease; position: relative; }
+        .subtab-btn.active { color: #fff; }
+        .subtab-btn.active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: ${ROUTE}; border-radius: 2px; }
+        .row-hover:hover { background: rgba(255,255,255,0.03); }
+        .link-btn { font-size: 12px; border-radius: 8px; padding: 6px 12px; border: 1px solid ${ROUTE}; color: ${ROUTE}; background: transparent; transition: background .15s ease; }
+        .link-btn:hover { background: ${ROUTE}1a; }
+      `}</style>
+
       {/* NAVBAR */}
       <nav className="sticky top-0 z-10 px-6 py-3 flex items-center justify-between" style={{ background: SN_AZUL, boxShadow: '0 2px 12px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center gap-3">
-          <div className="relative w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: SN_CELESTE }}>
+          <div className="relative w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: ROUTE }}>
             <Image
               src="/logo-sn.png"
               alt="SN Viajes"
@@ -1287,8 +1318,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             />
           </div>
           <div>
-            <p className="text-white font-semibold text-sm leading-none">SN Viajes <span style={{ color: SN_AMARILLO }}>&</span> Turismo</p>
-            <p className="text-xs mt-0.5" style={{ color: '#7AAEC4' }}>Detalle del viaje</p>
+            <p className="font-display text-white font-semibold text-sm leading-none">SN Viajes <span style={{ color: GOLD }}>&</span> Turismo</p>
+            <p className="font-mono-t text-[11px] mt-1 tracking-wide" style={{ color: '#7AAEC4' }}>Detalle del viaje</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1297,7 +1328,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
           <Link
             href={`/viaje/${viaje.id}/editar`}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
-            style={{ background: SN_AMARILLO, color: SN_AZUL, boxShadow: '0 2px 8px rgba(242, 182, 50, 0.3)' }}
+            style={{ background: GOLD, color: INK, boxShadow: `0 2px 8px ${GOLD}4d` }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1307,7 +1338,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
           <button
             onClick={() => setMostrarConfirmacionEliminar(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg"
-            style={{ background: '#DC2626', color: 'white', boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)' }}
+            style={{ background: ROJO, color: 'white', boxShadow: `0 2px 8px ${ROJO}4d` }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1328,20 +1359,27 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Header del viaje */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        {/* Header del viaje — cabecera tipo pasaje */}
+        <div
+          className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 rounded-2xl p-5"
+          style={{ background: PANEL, border: `1px solid ${LINE}` }}
+        >
           <div>
-            <h1 className="text-3xl font-bold text-white">{viaje.destino}</h1>
-            <p className="text-sm text-gray-400">
-              📅 {viaje.fecha_inicio} → {viaje.fecha_fin}
+            <h1 className="font-display text-3xl font-extrabold text-white tracking-tight">{viaje.destino}</h1>
+            <p className="font-mono-t text-xs mt-2" style={{ color: CHALK_DIM }}>
+              {viaje.fecha_inicio} → {viaje.fecha_fin}
             </p>
-            <p className="text-sm text-gray-400 mt-1">
-              👥 {confirmados.length}/{viaje.cupo_total} pasajeros confirmados
+            <p className="text-sm mt-1" style={{ color: CHALK_DIM }}>
+              {confirmados.length}/{viaje.cupo_total} pasajeros confirmados
             </p>
             {viaje.rangos_edad && viaje.rangos_edad.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 {viaje.rangos_edad.map((rango) => (
-                  <span key={rango.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-300">
+                  <span
+                    key={rango.id}
+                    className="font-mono-t text-xs px-2.5 py-1 rounded-full"
+                    style={{ background: INK, border: `1px solid ${LINE}`, color: CHALK_DIM }}
+                  >
                     {rango.descripcion}: ${rango.precio.toLocaleString()}
                   </span>
                 ))}
@@ -1349,50 +1387,46 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             )}
           </div>
           <div className="flex gap-3">
-            <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
-              <p className="text-xs text-gray-400">Confirmados</p>
-              <p className="text-xl font-bold text-white">{confirmados.length}</p>
+            <div className="rounded-xl px-4 py-2 text-center" style={{ background: INK, border: `1px solid ${LINE}` }}>
+              <p className="text-[11px] uppercase tracking-wide" style={{ color: CHALK_DIM }}>Confirmados</p>
+              <p className="font-display text-xl font-bold text-white">{confirmados.length}</p>
             </div>
-            <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
-              <p className="text-xs text-gray-400">Pendientes</p>
-              <p className="text-xl font-bold text-yellow-500">{pendientes.length}</p>
+            <div className="rounded-xl px-4 py-2 text-center" style={{ background: INK, border: `1px solid ${LINE}` }}>
+              <p className="text-[11px] uppercase tracking-wide" style={{ color: CHALK_DIM }}>Pendientes</p>
+              <p className="font-display text-xl font-bold" style={{ color: pendientes.length > 0 ? GOLD : '#fff' }}>{pendientes.length}</p>
             </div>
-            <div className="bg-gray-800/50 rounded-xl px-4 py-2 text-center border border-gray-700">
-              <p className="text-xs text-gray-400">Cupo</p>
-              <p className="text-xl font-bold text-blue-400">{viaje.cupo_total}</p>
+            <div className="rounded-xl px-4 py-2 text-center" style={{ background: INK, border: `1px solid ${LINE}` }}>
+              <p className="text-[11px] uppercase tracking-wide" style={{ color: CHALK_DIM }}>Cupo</p>
+              <p className="font-display text-xl font-bold" style={{ color: ROUTE }}>{viaje.cupo_total}</p>
             </div>
           </div>
         </div>
 
         {/* Stats menores */}
-        <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-gray-800/30 rounded-xl border border-gray-700">
+        <div className="grid grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ background: `${PANEL}80`, border: `1px solid ${LINE}` }}>
           <div>
-            <p className="text-xs text-gray-400">Total pasajeros</p>
-            <p className="text-lg font-semibold text-white">{pasajeros.length}</p>
+            <p className="text-xs" style={{ color: CHALK_DIM }}>Total pasajeros</p>
+            <p className="font-display text-lg font-semibold text-white">{pasajeros.length}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-400">👶 Menores de 3 (sin butaca)</p>
-            <p className="text-lg font-semibold text-blue-400">{totalMenores3}</p>
+            <p className="text-xs" style={{ color: CHALK_DIM }}>Menores de 3 (sin butaca)</p>
+            <p className="font-display text-lg font-semibold" style={{ color: ROUTE }}>{totalMenores3}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-400">🧒 Menores de 18</p>
-            <p className="text-lg font-semibold text-yellow-500">{totalMenores18}</p>
+            <p className="text-xs" style={{ color: CHALK_DIM }}>Menores de 18</p>
+            <p className="font-display text-lg font-semibold" style={{ color: GOLD }}>{totalMenores18}</p>
           </div>
         </div>
 
-        {/* Tabs principales - AHORA SOLO 2 */}
-        <div className="flex gap-8 mb-6 border-b border-gray-700">
+        {/* Tabs principales */}
+        <div className="flex gap-8 mb-6" style={{ borderBottom: `1px solid ${LINE}` }}>
           {['pasajeros', 'ruta'].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t as typeof tab)}
-              className={`pb-3 px-1 text-sm font-medium transition-all ${
-                tab === t
-                  ? 'border-b-2 border-blue-500 text-white'
-                  : 'text-gray-400 hover:text-gray-300'
-              }`}
+              className={`tab-btn ${tab === t ? 'active' : ''}`}
             >
-              {t === 'pasajeros' ? '👥 Pasajeros y Pagos' : '🗺️ Hoja de ruta'}
+              {t === 'pasajeros' ? 'Pasajeros y Pagos' : 'Hoja de ruta'}
             </button>
           ))}
         </div>
@@ -1403,26 +1437,18 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
         {tab === 'pasajeros' && (
           <div>
             {/* Sub-pestañas dentro de Pasajeros */}
-            <div className="flex gap-4 mb-4 border-b border-gray-700">
+            <div className="flex gap-4 mb-4" style={{ borderBottom: `1px solid ${LINE}` }}>
               <button
                 onClick={() => setSubTabPasajeros('lista')}
-                className={`pb-2 px-1 text-xs font-medium transition-all ${
-                  subTabPasajeros === 'lista'
-                    ? 'border-b-2 border-blue-500 text-white'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
+                className={`subtab-btn ${subTabPasajeros === 'lista' ? 'active' : ''}`}
               >
-                👥 Lista de pasajeros
+                Lista de pasajeros
               </button>
               <button
                 onClick={() => setSubTabPasajeros('pagos')}
-                className={`pb-2 px-1 text-xs font-medium transition-all ${
-                  subTabPasajeros === 'pagos'
-                    ? 'border-b-2 border-blue-500 text-white'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
+                className={`subtab-btn ${subTabPasajeros === 'pagos' ? 'active' : ''}`}
               >
-                💳 Pagos
+                Pagos
               </button>
             </div>
 
@@ -1430,11 +1456,11 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             {subTabPasajeros === 'lista' && (
               <div>
                 {/* Pendientes */}
-                <h2 className="font-medium mb-3 text-sm text-blue-400">Pendientes de revisión ({pendientes.length})</h2>
-                <div className="rounded-xl mb-6 overflow-hidden bg-gray-800/50 border border-gray-700">
+                <h2 className="font-display font-medium mb-3 text-sm" style={{ color: ROUTE }}>Pendientes de revisión ({pendientes.length})</h2>
+                <div className="rounded-xl mb-6 overflow-hidden" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
                   {pendientes.length === 0 && (
                     <div className="p-6 text-center">
-                      <p className="text-sm text-gray-400">✅ No hay pasajeros pendientes</p>
+                      <p className="text-sm" style={{ color: CHALK_DIM }}>No hay pasajeros pendientes</p>
                     </div>
                   )}
                   {Object.entries(gruposPendientes).map(([grupoId, miembros]) => {
@@ -1442,28 +1468,25 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     const resto = miembros.filter((m) => m.id !== titular.id)
                     const abierto = expandido[grupoId]
                     return (
-                      <div key={grupoId} className="border-b border-gray-700 last:border-0">
-                        <div className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
+                      <div key={grupoId} style={{ borderBottom: `1px solid ${LINE}` }} className="last:border-0">
+                        <div className="row-hover flex items-center justify-between p-3 transition-colors">
                           <button onClick={() => toggleGrupo(grupoId)} className="text-left flex-1">
                             <p className="text-sm text-white">
                               {titular.nombre} {titular.apellido}
-                              {resto.length > 0 && <span className="text-gray-400"> +{resto.length}</span>}
+                              {resto.length > 0 && <span style={{ color: CHALK_DIM }}> +{resto.length}</span>}
                             </p>
-                            <p className="text-xs text-gray-400">
+                            <p className="font-mono-t text-xs mt-0.5" style={{ color: CHALK_DIM }}>
                               DNI {titular.numero_documento} · {miembros.length} integrante{miembros.length > 1 ? 's' : ''}
                             </p>
                           </button>
-                          <button
-                            onClick={() => abrirDetalleGrupo(grupoId, miembros)}
-                            className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
-                          >
+                          <button onClick={() => abrirDetalleGrupo(grupoId, miembros)} className="link-btn">
                             Ver detalle
                           </button>
                         </div>
                         {abierto && resto.length > 0 && (
                           <div className="pl-6 pb-2 space-y-1">
                             {resto.map((m) => (
-                              <p key={m.id} className="text-xs text-gray-400 py-1">
+                              <p key={m.id} className="text-xs py-1" style={{ color: CHALK_DIM }}>
                                 {m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}
                               </p>
                             ))}
@@ -1473,15 +1496,12 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     )
                   })}
                   {individualesPendientes.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                    <div key={p.id} className="row-hover flex items-center justify-between p-3 transition-colors" style={{ borderBottom: `1px solid ${LINE}` }}>
                       <div>
                         <p className="text-sm text-white">{p.nombre} {p.apellido}</p>
-                        <p className="text-xs text-gray-400">DNI {p.numero_documento}</p>
+                        <p className="font-mono-t text-xs mt-0.5" style={{ color: CHALK_DIM }}>DNI {p.numero_documento}</p>
                       </div>
-                      <button
-                        onClick={() => abrirDetalleIndividual(p)}
-                        className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
-                      >
+                      <button onClick={() => abrirDetalleIndividual(p)} className="link-btn">
                         Ver detalle
                       </button>
                     </div>
@@ -1489,11 +1509,11 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 </div>
 
                 {/* Confirmados */}
-                <h2 className="font-medium mb-3 text-sm text-blue-400">Confirmados ({confirmados.length})</h2>
-                <div className="rounded-xl overflow-hidden bg-gray-800/50 border border-gray-700">
+                <h2 className="font-display font-medium mb-3 text-sm" style={{ color: ROUTE }}>Confirmados ({confirmados.length})</h2>
+                <div className="rounded-xl overflow-hidden" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
                   {confirmados.length === 0 && (
                     <div className="p-6 text-center">
-                      <p className="text-sm text-gray-400">Todavía no hay pasajeros confirmados</p>
+                      <p className="text-sm" style={{ color: CHALK_DIM }}>Todavía no hay pasajeros confirmados</p>
                     </div>
                   )}
                   {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
@@ -1505,22 +1525,19 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     const grupoCompleto = (montoTotalGrupo - montoPagadoGrupo) <= 0
                     const pagaron = grupoCompleto ? miembros.length : miembros.filter(m => m.estado_pago === 'pagado').length
                     return (
-                      <div key={grupoId} className="border-b border-gray-700 last:border-0">
-                        <div className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
+                      <div key={grupoId} style={{ borderBottom: `1px solid ${LINE}` }} className="last:border-0">
+                        <div className="row-hover flex items-center justify-between p-3 transition-colors">
                           <button onClick={() => toggleGrupo(grupoId)} className="text-left flex-1">
                             <p className="text-sm text-white">
                               {titular.nombre} {titular.apellido}
-                              {resto.length > 0 && <span className="text-gray-400"> +{resto.length}</span>}
+                              {resto.length > 0 && <span style={{ color: CHALK_DIM }}> +{resto.length}</span>}
                             </p>
                           </button>
-                          <div className="flex gap-2">
-                            <span className="text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400">
+                          <div className="flex gap-2 items-center">
+                            <span className={chipBase} style={{ background: `${GOLD}22`, color: GOLD }}>
                               {pagaron} de {miembros.length} pagaron
                             </span>
-                            <button
-                              onClick={() => abrirDetalleGrupo(grupoId, miembros)}
-                              className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
-                            >
+                            <button onClick={() => abrirDetalleGrupo(grupoId, miembros)} className="link-btn">
                               Ver detalle
                             </button>
                           </div>
@@ -1529,13 +1546,13 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                           <div className="pl-6 pb-2 space-y-1">
                             {resto.map((m) => (
                               <div key={m.id} className="flex items-center justify-between">
-                                <p className="text-xs text-gray-400">{m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}</p>
+                                <p className="text-xs" style={{ color: CHALK_DIM }}>{m.nombre} {m.apellido} · {m.parentesco_con_titular || 'acompañante'}</p>
                                 <span
-                                  className={`text-xs px-2 py-0.5 rounded-full ${
-                                    m.estado_pago === 'pagado'
-                                      ? 'bg-green-500/20 text-green-400'
-                                      : 'bg-yellow-500/20 text-yellow-400'
-                                  }`}
+                                  className="text-xs px-2 py-0.5 rounded-full font-mono-t"
+                                  style={{
+                                    background: m.estado_pago === 'pagado' ? `${ROUTE}22` : `${GOLD}22`,
+                                    color: m.estado_pago === 'pagado' ? ROUTE : GOLD
+                                  }}
                                 >
                                   {m.estado_pago === 'pagado' ? 'Pagado' : 'Pendiente'}
                                 </span>
@@ -1550,22 +1567,16 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
                     const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
                     return (
-                      <div key={p.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                      <div key={p.id} className="row-hover flex items-center justify-between p-3 transition-colors" style={{ borderBottom: `1px solid ${LINE}` }}>
                         <p className="text-sm text-white">{p.nombre} {p.apellido}</p>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
                           <span
-                            className={`text-xs px-2 py-1 rounded-full ${
-                              estaPagado
-                                ? 'bg-green-500/20 text-green-400'
-                                : 'bg-yellow-500/20 text-yellow-400'
-                            }`}
+                            className={chipBase}
+                            style={{ background: estaPagado ? `${ROUTE}22` : `${GOLD}22`, color: estaPagado ? ROUTE : GOLD }}
                           >
-                            {estaPagado ? '✅ Pagado' : 'Pendiente'}
+                            {estaPagado ? 'Pagado' : 'Pendiente'}
                           </span>
-                          <button
-                            onClick={() => abrirDetalleIndividual(p)}
-                            className="text-xs rounded-lg px-3 py-1.5 transition-opacity hover:opacity-80 border border-blue-500 text-blue-400 hover:bg-blue-500/10"
-                          >
+                          <button onClick={() => abrirDetalleIndividual(p)} className="link-btn">
                             Ver detalle
                           </button>
                         </div>
@@ -1581,18 +1592,18 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
               <div>
                 {/* Header con botón de exportar */}
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-semibold text-white">💳 Pagos</h2>
-                  <BotonExportarPagos 
+                  <h2 className="font-display text-lg font-semibold text-white">Pagos</h2>
+                  <BotonExportarPagos
                     pagos={pagos}
                     pasajeros={pasajeros}
                     viajeNombre={viaje.destino}
                   />
                 </div>
-                
-                <div className="rounded-xl overflow-hidden bg-gray-800/50 border border-gray-700">
+
+                <div className="rounded-xl overflow-hidden" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
                   {confirmados.length === 0 && (
                     <div className="p-6 text-center">
-                      <p className="text-sm text-gray-400">No hay pasajeros confirmados todavía</p>
+                      <p className="text-sm" style={{ color: CHALK_DIM }}>No hay pasajeros confirmados todavía</p>
                     </div>
                   )}
                   {Object.entries(gruposConfirmados).map(([grupoId, miembros]) => {
@@ -1603,19 +1614,18 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     const todosPagados = deudaRestante <= 0
 
                     return (
-                      <div key={grupoId} className="p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                      <div key={grupoId} className="row-hover p-4 transition-colors" style={{ borderBottom: `1px solid ${LINE}` }}>
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div>
                             <p className="text-sm font-medium text-white">{titular.nombre} {titular.apellido} y grupo</p>
-                            <p className="text-xs text-gray-400">
+                            <p className="font-mono-t text-xs mt-0.5" style={{ color: CHALK_DIM }}>
                               {miembros.length} personas · ${montoPagadoGrupo.toLocaleString()} de ${montoTotalGrupo.toLocaleString()}
                             </p>
                             {deudaRestante > 0 && (
-                              <p className="text-xs text-yellow-500">Falta: ${deudaRestante.toLocaleString()}</p>
+                              <p className="font-mono-t text-xs mt-0.5" style={{ color: GOLD }}>Falta: ${deudaRestante.toLocaleString()}</p>
                             )}
                           </div>
                           <div className="flex gap-2 flex-wrap">
-                            {/* ✅ BOTÓN EDITAR MONTO TOTAL DEL GRUPO */}
                             <button
                               onClick={() => {
                                 setEditandoMontoGrupal({
@@ -1625,14 +1635,15 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                                   miembros: miembros
                                 })
                               }}
-                              className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-green-600 text-white"
+                              className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
+                              style={{ background: ROUTE, color: INK }}
                             >
-                              💰 Editar monto total
+                              Editar monto total
                             </button>
-                            
+
                             {todosPagados ? (
-                              <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
-                                ✅ Grupo pagado
+                              <span className={chipBase} style={{ background: `${ROUTE}22`, color: ROUTE }}>
+                                Grupo pagado
                               </span>
                             ) : (
                               <button
@@ -1649,7 +1660,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                                     montoPagado: m.monto_pagado || 0
                                   })))
                                 }}
-                                className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
+                                className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
+                                style={{ background: GOLD, color: INK }}
                               >
                                 Registrar pago grupal
                               </button>
@@ -1663,21 +1675,18 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     const deuda = (p.monto_total || 0) - (p.monto_pagado || 0)
                     const estaPagado = p.estado_pago === 'pagado' || deuda <= 0
                     return (
-                      <div key={p.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors border-b border-gray-700 last:border-0">
+                      <div key={p.id} className="row-hover flex items-center justify-between p-4 transition-colors" style={{ borderBottom: `1px solid ${LINE}` }}>
                         <div>
                           <p className="text-sm font-medium text-white">{p.nombre} {p.apellido}</p>
-                          <p className="text-xs text-gray-400">
+                          <p className="font-mono-t text-xs mt-0.5" style={{ color: CHALK_DIM }}>
                             ${p.monto_pagado?.toLocaleString() ?? 0} de ${p.monto_total?.toLocaleString() ?? 0}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
                           {estaPagado ? (
-                            <>
-                              <span className="text-xs px-3 py-1 rounded-full font-medium bg-green-500/20 text-green-400">
-                                ✅ Pagado
-                              </span>
-                              
-                            </>
+                            <span className={chipBase} style={{ background: `${ROUTE}22`, color: ROUTE }}>
+                              Pagado
+                            </span>
                           ) : (
                             <button
                               onClick={() => {
@@ -1688,7 +1697,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                                 setPagoGrupal(false)
                                 setMiembrosGrupo([])
                               }}
-                              className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85 bg-yellow-500 text-gray-900"
+                              className="text-xs rounded-lg px-3 py-1.5 font-medium border-none transition-opacity hover:opacity-85"
+                              style={{ background: GOLD, color: INK }}
                             >
                               Registrar pago
                             </button>
@@ -1709,36 +1719,24 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
         {tab === 'ruta' && (
           <div>
             {/* SUBPESTAÑAS DE RUTA */}
-            <div className="flex gap-6 mb-6 border-b border-gray-700">
+            <div className="flex gap-6 mb-6" style={{ borderBottom: `1px solid ${LINE}` }}>
               <button
                 onClick={() => setSubTabRuta('asientos')}
-                className={`pb-3 px-1 text-sm font-medium transition-all ${
-                  subTabRuta === 'asientos'
-                    ? 'border-b-2 border-blue-500 text-white'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
+                className={`tab-btn ${subTabRuta === 'asientos' ? 'active' : ''}`}
               >
-                🪑 Asientos
+                Asientos
               </button>
               <button
                 onClick={() => setSubTabRuta('itinerario')}
-                className={`pb-3 px-1 text-sm font-medium transition-all ${
-                  subTabRuta === 'itinerario'
-                    ? 'border-b-2 border-blue-500 text-white'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
+                className={`tab-btn ${subTabRuta === 'itinerario' ? 'active' : ''}`}
               >
-                📅 Itinerario
+                Itinerario
               </button>
               <button
                 onClick={() => setSubTabRuta('hoteles')}
-                className={`pb-3 px-1 text-sm font-medium transition-all ${
-                  subTabRuta === 'hoteles'
-                    ? 'border-b-2 border-blue-500 text-white'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
+                className={`tab-btn ${subTabRuta === 'hoteles' ? 'active' : ''}`}
               >
-                🏨 Hoteles
+                Hoteles
               </button>
             </div>
 
@@ -1746,14 +1744,14 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
            {subTabRuta === 'asientos' && (
   <div>
     <div className="flex justify-between items-center mb-4">
-      <h3 className="text-white font-medium">🪑 Mapa de asientos</h3>
-      <BotonExportarAsientos 
+      <h3 className="font-display text-white font-medium">Mapa de asientos</h3>
+      <BotonExportarAsientos
         asientos={asientos}
         viajeNombre={viaje.destino}
       />
     </div>
-            
-  <ContenidoAsientos 
+
+  <ContenidoAsientos
     asientos={asientos}
     pasajerosSinAsiento={pasajerosSinAsiento}
     onAsignarAsiento={(asientoNumero, pasajeroId) => {
@@ -1765,10 +1763,10 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
 
       const nuevosAsientos = asientos.map(a =>
         a.numero === asientoNumero
-          ? { 
-              ...a, 
+          ? {
+              ...a,
               estado: 'ocupado' as const,
-              pasajeroId, 
+              pasajeroId,
               nombrePasajero: `${pasajero.nombre} ${pasajero.apellido}`
             }
           : a
@@ -1781,7 +1779,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
           .from('pasajeros')
           .update({ recargo_asiento: recargo })
           .eq('id', pasajeroId)
-        
+
         if (!error) {
           await recalcularMontoTotal(pasajeroId)
           router.refresh()
@@ -1792,10 +1790,10 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
     onDesasignarAsiento={(asientoNumero) => {
       const nuevosAsientos = asientos.map(a =>
         a.numero === asientoNumero
-          ? { 
-              ...a, 
+          ? {
+              ...a,
               estado: a.tipo === 'cama' ? 'cama_libre' as const : 'disponible' as const,
-              pasajeroId: undefined, 
+              pasajeroId: undefined,
               nombrePasajero: undefined
             }
           : a
@@ -1810,7 +1808,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             .from('pasajeros')
             .update({ recargo_asiento: 0 })
             .eq('id', asiento.pasajeroId)
-          
+
           if (!error) {
             await recalcularMontoTotal(asiento.pasajeroId)
             router.refresh()
@@ -1825,7 +1823,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
 )}
 
             {subTabRuta === 'itinerario' && (
-              <ContenidoItinerario 
+              <ContenidoItinerario
                 eventos={eventos}
                 onAgregarEvento={(evento) => {
                   setEventos([...eventos, { ...evento, id: crypto.randomUUID() }])
@@ -1837,7 +1835,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             )}
 
             {subTabRuta === 'hoteles' && (
-              <ContenidoHoteles 
+              <ContenidoHoteles
                 hotel={hotel}
                 habitaciones={habitaciones}
                 pasajeros={pasajeros}
@@ -1887,11 +1885,11 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             estaAprobando={aprobando === detalleModal.pasajero.id || aprobando === detalleModal.miembros[0]?.grupo_id}
             onAprobar={(iniciales) => {
               if (!detalleModal) return
-              
+
               const esGrupo = detalleModal.esGrupo
               const pasajeroId = detalleModal.pasajero.id
               const grupoId = detalleModal.miembros[0]?.grupo_id
-              
+
               if (esGrupo && grupoId) {
                 handleAprobarGrupo(grupoId, iniciales)
               } else if (pasajeroId) {
@@ -2017,27 +2015,29 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
 
         {/* Modal Confirmación Eliminar Viaje */}
         {mostrarConfirmacionEliminar && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 max-w-sm w-full">
-              <h3 className="text-lg font-semibold mb-2">¿Eliminar viaje?</h3>
-              <p className="text-gray-600 mb-4">
-                ¿Estás seguro que deseas eliminar el viaje a <strong>{viaje.destino}</strong>?
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="font-display rounded-xl p-6 max-w-sm w-full" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
+              <h3 className="text-lg font-semibold mb-2 text-white">¿Eliminar viaje?</h3>
+              <p className="font-sans text-sm mb-4" style={{ color: CHALK_DIM }}>
+                ¿Estás seguro que deseas eliminar el viaje a <strong className="text-white">{viaje.destino}</strong>?
                 <br />
-                <span className="text-sm text-red-600">Se eliminarán todos los pasajeros y la hoja de ruta asociados.</span>
+                <span className="text-sm" style={{ color: CORAL }}>Se eliminarán todos los pasajeros y la hoja de ruta asociados.</span>
                 <br />
-                <span className="text-sm font-semibold text-red-600">Esta acción no se puede deshacer.</span>
+                <span className="text-sm font-semibold" style={{ color: CORAL }}>Esta acción no se puede deshacer.</span>
               </p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setMostrarConfirmacionEliminar(false)}
-                  className="flex-1 border rounded-lg p-2 hover:bg-gray-50"
+                  className="flex-1 rounded-lg p-2 text-sm transition-colors"
+                  style={btnGhost}
                   disabled={eliminando}
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleEliminarViaje}
-                  className="flex-1 bg-red-600 text-white rounded-lg p-2 hover:bg-red-700 disabled:opacity-50"
+                  className="flex-1 rounded-lg p-2 text-sm text-white transition-colors disabled:opacity-50"
+                  style={{ background: ROJO }}
                   disabled={eliminando}
                 >
                   {eliminando ? 'Eliminando...' : 'Eliminar'}
@@ -2052,29 +2052,30 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             ============================================ */}
         {mostrarModalMover && pasajeroAMover && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div className="font-sans rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-400 text-xl">✈️</span>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${ROUTE}22` }}>
+                  <span className="text-xl" style={{ color: ROUTE }}>✈</span>
                 </div>
-                <h3 className="text-xl font-bold text-white">Mover pasajero</h3>
+                <h3 className="font-display text-xl font-bold text-white">Mover pasajero</h3>
               </div>
 
-              <p className="text-sm text-gray-300 mb-4">
+              <p className="text-sm mb-4" style={{ color: CHALK_DIM }}>
                 Mover a <strong className="text-white">{pasajeroAMover.nombre} {pasajeroAMover.apellido}</strong>
                 <br />
-                <span className="text-xs text-gray-400">Viaje actual: {viaje.destino}</span>
+                <span className="font-mono-t text-xs">Viaje actual: {viaje.destino}</span>
               </p>
 
               {/* Viaje destino */}
               <div className="mb-4">
-                <label className="text-sm font-semibold text-gray-300 block mb-1">
-                  🎯 Viaje destino:
+                <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
+                  Viaje destino:
                 </label>
                 <select
                   value={viajeSeleccionado}
                   onChange={(e) => setViajeSeleccionado(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2.5 text-white focus:border-blue-500 focus:outline-none"
+                  className={inputBase}
+                  style={inputStyle}
                 >
                   <option value="">Seleccionar viaje...</option>
                   {viajesDisponibles.map(v => (
@@ -2093,30 +2094,32 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     if (!viajeDest) return null
                     const precioDestino = viajeDest.precio || 0
                     const montoPagado = pasajeroAMover.monto_pagado || 0
-                    
+
                     const nuevoMontoTotal = precioDestino
                     const deudaRestante = nuevoMontoTotal - montoPagado
-                    
+
                     return (
-                      <div className={`p-3 rounded-lg mb-4 ${
-                        deudaRestante > 0
-                          ? 'bg-yellow-500/10 border border-yellow-500/50'
-                          : 'bg-green-500/10 border border-green-500/50'
-                      }`}>
-                        <p className="text-sm text-gray-300">
-                          💰 Resumen de pago:
+                      <div
+                        className="p-3 rounded-lg mb-4"
+                        style={{
+                          background: deudaRestante > 0 ? `${GOLD}14` : `${ROUTE}14`,
+                          border: `1px solid ${deudaRestante > 0 ? GOLD : ROUTE}55`
+                        }}
+                      >
+                        <p className="text-sm" style={{ color: CHALK_DIM }}>
+                          Resumen de pago:
                         </p>
-                        <div className="mt-2 space-y-1 text-sm">
-                          <p className="text-gray-300">
-                            Pagado: <span className="text-green-400 font-semibold">${montoPagado.toLocaleString()}</span>
+                        <div className="mt-2 space-y-1 text-sm font-mono-t">
+                          <p style={{ color: CHALK_DIM }}>
+                            Pagado: <span style={{ color: ROUTE }} className="font-semibold">${montoPagado.toLocaleString()}</span>
                           </p>
-                          <p className="text-gray-300">
-                            Precio destino: <span className="text-blue-400 font-semibold">${precioDestino.toLocaleString()}</span>
+                          <p style={{ color: CHALK_DIM }}>
+                            Precio destino: <span className="font-semibold text-white">${precioDestino.toLocaleString()}</span>
                           </p>
-                          <p className={`font-semibold ${deudaRestante > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
-                            {deudaRestante > 0 
-                              ? `⚠️ Debe: $${deudaRestante.toLocaleString()}`
-                              : '✅ Saldo suficiente'}
+                          <p className="font-semibold" style={{ color: deudaRestante > 0 ? GOLD : ROUTE }}>
+                            {deudaRestante > 0
+                              ? `Debe: $${deudaRestante.toLocaleString()}`
+                              : 'Saldo suficiente'}
                           </p>
                         </div>
                       </div>
@@ -2126,14 +2129,15 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
               )}
 
               {/* Botones */}
-              <div className="flex gap-2 mt-4 pt-2 border-t border-gray-700">
+              <div className="flex gap-2 mt-4 pt-2" style={{ borderTop: `1px solid ${LINE}` }}>
                 <button
                   onClick={() => {
                     setMostrarModalMover(false)
                     setPasajeroAMover(null)
                     setViajeSeleccionado('')
                   }}
-                  className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={btnGhost}
                   disabled={moviendoPasajero}
                 >
                   Cancelar
@@ -2141,11 +2145,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 <button
                   onClick={handleMoverPasajero}
                   disabled={!viajeSeleccionado || moviendoPasajero}
-                  className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-                    viajeSeleccionado && !moviendoPasajero
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                  }`}
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={viajeSeleccionado && !moviendoPasajero ? btnPrimary : btnDisabled}
                 >
                   {moviendoPasajero ? 'Moviendo...' : 'Mover pasajero'}
                 </button>
@@ -2159,19 +2160,19 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             ============================================ */}
         {editandoPago && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-gray-700">
+            <div className="font-sans rounded-xl p-6 max-w-md w-full" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-400 text-xl">✏️</span>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${ROUTE}22` }}>
+                  <span className="text-xl" style={{ color: ROUTE }}>✎</span>
                 </div>
-                <h3 className="text-xl font-bold text-white">Editar pago</h3>
+                <h3 className="font-display text-xl font-bold text-white">Editar pago</h3>
               </div>
 
               <div className="space-y-4">
                 {/* Monto */}
                 <div>
-                  <label className="text-sm font-semibold text-gray-300 block mb-1">
-                    💰 Monto <span className="text-red-500">*</span>
+                  <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
+                    Monto <span style={{ color: CORAL }}>*</span>
                   </label>
                   <input
                     type="number"
@@ -2180,7 +2181,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                       ...editandoPago,
                       monto: parseFloat(e.target.value) || 0
                     })}
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    className={inputBase}
+                    style={inputStyle}
                     min="0"
                     step="100"
                   />
@@ -2188,8 +2190,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
 
                 {/* Método de pago */}
                 <div>
-                  <label className="text-sm font-semibold text-gray-300 block mb-1">
-                    💳 Método de pago <span className="text-red-500">*</span>
+                  <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
+                    Método de pago <span style={{ color: CORAL }}>*</span>
                   </label>
                   <select
                     value={editandoPago.metodo_pago}
@@ -2197,7 +2199,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                       ...editandoPago,
                       metodo_pago: e.target.value
                     })}
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    className={inputBase}
+                    style={inputStyle}
                   >
                     <option value="Efectivo">Efectivo</option>
                     <option value="Transferencia">Transferencia</option>
@@ -2210,7 +2213,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 {/* Tipo de tarjeta */}
                 {editandoPago.metodo_pago === 'Tarjeta Crédito' && (
                   <div>
-                    <label className="text-sm font-semibold text-gray-300 block mb-1">
+                    <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
                       Tipo de tarjeta
                     </label>
                     <select
@@ -2219,7 +2222,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                         ...editandoPago,
                         tipo_tarjeta: e.target.value
                       })}
-                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                      className={inputBase}
+                      style={inputStyle}
                     >
                       <option value="">Seleccionar...</option>
                       <option value="Visa">Visa</option>
@@ -2233,7 +2237,7 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 {/* Cuotas */}
                 {editandoPago.metodo_pago === 'Tarjeta Crédito' && (
                   <div>
-                    <label className="text-sm font-semibold text-gray-300 block mb-1">
+                    <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
                       Cuotas
                     </label>
                     <select
@@ -2242,7 +2246,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                         ...editandoPago,
                         cuotas: parseInt(e.target.value)
                       })}
-                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                      className={inputBase}
+                      style={inputStyle}
                     >
                       {[1, 2, 3, 4, 5, 6, 9, 12, 18, 24].map(n => (
                         <option key={n} value={n}>{n} cuota{n > 1 ? 's' : ''}</option>
@@ -2253,8 +2258,8 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
 
                 {/* Notas */}
                 <div>
-                  <label className="text-sm font-semibold text-gray-300 block mb-1">
-                    📝 Notas (opcional)
+                  <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
+                    Notas (opcional)
                   </label>
                   <input
                     type="text"
@@ -2263,24 +2268,26 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                       ...editandoPago,
                       notas: e.target.value
                     })}
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                    className={inputBase}
+                    style={inputStyle}
                     placeholder="Motivo del cambio..."
                   />
                 </div>
 
                 {/* Advertencia */}
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-                  <p className="text-xs text-yellow-400">
-                    ⚠️ Al editar el monto, se actualizará automáticamente el total pagado del pasajero.
+                <div className="rounded-lg p-3" style={{ background: `${GOLD}14`, border: `1px solid ${GOLD}55` }}>
+                  <p className="text-xs" style={{ color: GOLD }}>
+                    Al editar el monto, se actualizará automáticamente el total pagado del pasajero.
                   </p>
                 </div>
               </div>
 
               {/* Botones */}
-              <div className="flex gap-2 mt-6 pt-4 border-t border-gray-700">
+              <div className="flex gap-2 mt-6 pt-4" style={{ borderTop: `1px solid ${LINE}` }}>
                 <button
                   onClick={() => setEditandoPago(null)}
-                  className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={btnGhost}
                   disabled={guardandoEdicionPago}
                 >
                   Cancelar
@@ -2288,13 +2295,10 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 <button
                   onClick={handleGuardarEdicionPago}
                   disabled={guardandoEdicionPago || !editandoPago.monto || editandoPago.monto <= 0}
-                  className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-                    !guardandoEdicionPago && editandoPago.monto > 0
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                  }`}
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={!guardandoEdicionPago && editandoPago.monto > 0 ? btnPrimary : btnDisabled}
                 >
-                  {guardandoEdicionPago ? 'Guardando...' : '💾 Guardar cambios'}
+                  {guardandoEdicionPago ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
             </div>
@@ -2306,21 +2310,21 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             ============================================ */}
         {editandoMontoTotal && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-gray-700">
+            <div className="font-sans rounded-xl p-6 max-w-md w-full" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                  <span className="text-green-400 text-xl">💰</span>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${ROUTE}22` }}>
+                  <span className="text-xl" style={{ color: ROUTE }}>$</span>
                 </div>
-                <h3 className="text-xl font-bold text-white">Editar monto total</h3>
+                <h3 className="font-display text-xl font-bold text-white">Editar monto total</h3>
               </div>
 
-              <p className="text-sm text-gray-300 mb-4">
+              <p className="text-sm mb-4" style={{ color: CHALK_DIM }}>
                 Editando el monto total de <strong className="text-white">{editandoMontoTotal.nombre}</strong>
               </p>
 
               <div className="mb-4">
-                <label className="text-sm font-semibold text-gray-300 block mb-1">
-                  💰 Monto total <span className="text-red-500">*</span>
+                <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
+                  Monto total <span style={{ color: CORAL }}>*</span>
                 </label>
                 <input
                   type="number"
@@ -2329,25 +2333,27 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     ...editandoMontoTotal,
                     montoTotal: parseFloat(e.target.value) || 0
                   })}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                  className={inputBase}
+                  style={inputStyle}
                   min="0"
                   step="100"
                 />
-                <p className="text-xs text-gray-400 mt-1">Este monto aparecerá en el recibo del pasajero</p>
+                <p className="text-xs mt-1" style={{ color: CHALK_DIM }}>Este monto aparecerá en el recibo del pasajero</p>
               </div>
 
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-4">
-                <p className="text-xs text-yellow-400">
-                  ⚠️ Al editar el monto total, se actualizará el recibo y la deuda del pasajero.
+              <div className="rounded-lg p-3 mb-4" style={{ background: `${GOLD}14`, border: `1px solid ${GOLD}55` }}>
+                <p className="text-xs" style={{ color: GOLD }}>
+                  Al editar el monto total, se actualizará el recibo y la deuda del pasajero.
                   <br />
-                  <span className="text-gray-400">El monto pagado no se modificará.</span>
+                  <span style={{ color: CHALK_DIM }}>El monto pagado no se modificará.</span>
                 </p>
               </div>
 
-              <div className="flex gap-2 mt-4 pt-4 border-t border-gray-700">
+              <div className="flex gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${LINE}` }}>
                 <button
                   onClick={() => setEditandoMontoTotal(null)}
-                  className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={btnGhost}
                   disabled={guardandoMontoTotal}
                 >
                   Cancelar
@@ -2355,13 +2361,10 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 <button
                   onClick={handleGuardarMontoTotal}
                   disabled={guardandoMontoTotal || editandoMontoTotal.montoTotal < 0}
-                  className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-                    !guardandoMontoTotal && editandoMontoTotal.montoTotal >= 0
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                  }`}
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={!guardandoMontoTotal && editandoMontoTotal.montoTotal >= 0 ? btnPrimary : btnDisabled}
                 >
-                  {guardandoMontoTotal ? 'Guardando...' : '💾 Guardar cambios'}
+                  {guardandoMontoTotal ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
             </div>
@@ -2373,23 +2376,23 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
             ============================================ */}
         {editandoMontoGrupal && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-gray-700">
+            <div className="font-sans rounded-xl p-6 max-w-md w-full" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                  <span className="text-green-400 text-xl">👥</span>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${ROUTE}22` }}>
+                  <span className="text-xl" style={{ color: ROUTE }}>👥</span>
                 </div>
-                <h3 className="text-xl font-bold text-white">Editar monto total del grupo</h3>
+                <h3 className="font-display text-xl font-bold text-white">Editar monto total del grupo</h3>
               </div>
 
-              <p className="text-sm text-gray-300 mb-4">
+              <p className="text-sm mb-4" style={{ color: CHALK_DIM }}>
                 Editando el monto total de <strong className="text-white">{editandoMontoGrupal.nombre}</strong>
                 <br />
-                <span className="text-xs text-gray-400">{editandoMontoGrupal.miembros.length} integrantes</span>
+                <span className="font-mono-t text-xs">{editandoMontoGrupal.miembros.length} integrantes</span>
               </p>
 
               <div className="mb-4">
-                <label className="text-sm font-semibold text-gray-300 block mb-1">
-                  💰 Monto total del grupo <span className="text-red-500">*</span>
+                <label className="text-sm font-semibold block mb-1" style={{ color: CHALK_DIM }}>
+                  Monto total del grupo <span style={{ color: CORAL }}>*</span>
                 </label>
                 <input
                   type="number"
@@ -2398,31 +2401,33 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                     ...editandoMontoGrupal,
                     montoTotal: parseFloat(e.target.value) || 0
                   })}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none"
+                  className={inputBase}
+                  style={inputStyle}
                   min="0"
                   step="100"
                 />
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs mt-1" style={{ color: CHALK_DIM }}>
                   Se dividirá equitativamente entre los {editandoMontoGrupal.miembros.length} integrantes
                   <br />
-                  <span className="text-green-400">
+                  <span className="font-mono-t" style={{ color: ROUTE }}>
                     Cada pasajero: ${Math.round(editandoMontoGrupal.montoTotal / editandoMontoGrupal.miembros.length).toLocaleString()}
                   </span>
                 </p>
               </div>
 
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-4">
-                <p className="text-xs text-yellow-400">
-                  ⚠️ Al editar el monto total del grupo, se actualizarán todos los recibos.
+              <div className="rounded-lg p-3 mb-4" style={{ background: `${GOLD}14`, border: `1px solid ${GOLD}55` }}>
+                <p className="text-xs" style={{ color: GOLD }}>
+                  Al editar el monto total del grupo, se actualizarán todos los recibos.
                   <br />
-                  <span className="text-gray-400">El monto pagado no se modificará.</span>
+                  <span style={{ color: CHALK_DIM }}>El monto pagado no se modificará.</span>
                 </p>
               </div>
 
-              <div className="flex gap-2 mt-4 pt-4 border-t border-gray-700">
+              <div className="flex gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${LINE}` }}>
                 <button
                   onClick={() => setEditandoMontoGrupal(null)}
-                  className="flex-1 border border-gray-600 rounded-lg py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={btnGhost}
                   disabled={guardandoMontoTotal}
                 >
                   Cancelar
@@ -2430,19 +2435,16 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
                 <button
                   onClick={handleGuardarMontoGrupal}
                   disabled={guardandoMontoTotal || editandoMontoGrupal.montoTotal < 0}
-                  className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-                    !guardandoMontoTotal && editandoMontoGrupal.montoTotal >= 0
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                  }`}
+                  className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition-colors"
+                  style={!guardandoMontoTotal && editandoMontoGrupal.montoTotal >= 0 ? btnPrimary : btnDisabled}
                 >
-                  {guardandoMontoTotal ? 'Guardando...' : '💾 Guardar cambios'}
+                  {guardandoMontoTotal ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
             </div>
           </div>
         )}
-        
+
       </div>
     </main>
   )
