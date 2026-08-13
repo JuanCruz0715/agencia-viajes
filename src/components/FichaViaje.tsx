@@ -1419,16 +1419,19 @@ async function handleAprobarPasajero(id: string, iniciales?: string) {
         </div>
 
         {/* Tabs principales */}
-        <div className="flex gap-8 mb-6" style={{ borderBottom: `1px solid ${LINE}` }}>
-          {['pasajeros', 'ruta'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t as typeof tab)}
-              className={`tab-btn ${tab === t ? 'active' : ''}`}
-            >
-              {t === 'pasajeros' ? 'Pasajeros y Pagos' : 'Hoja de ruta'}
-            </button>
-          ))}
+        <div className="flex items-center justify-between mb-6" style={{ borderBottom: `1px solid ${LINE}` }}>
+          <button
+            onClick={() => setTab('pasajeros')}
+            className={`tab-btn ${tab === 'pasajeros' ? 'active' : ''}`}
+          >
+            Pasajeros y Pagos
+          </button>
+          <button
+            onClick={() => setTab('ruta')}
+            className={`tab-btn ${tab === 'ruta' ? 'active' : ''}`}
+          >
+            Hoja de ruta
+          </button>
         </div>
 
         {/* ============================================
