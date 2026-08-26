@@ -17,6 +17,7 @@ type Props = {
   viajeNombre: string
 }
 
+// Colores normales de la app
 const SN_AZUL = '#1B3A5C'
 const SN_CELESTE = '#2D9CB8'
 const SN_AMARILLO = '#F2B632'
@@ -24,6 +25,17 @@ const BG_PAGINA = '#0B1620'
 const BG_CARD = '#15212C'
 const BORDE = '#1E2D3D'
 const TEXTO_MUTED = '#9FB3C2'
+
+// Colores para EXPORTAR (Modo claro / Ahorro de tinta)
+const EXPORT_BG = '#FFFFFF'
+const EXPORT_BG_CARD = '#F3F4F6'
+const EXPORT_BORDER = '#D1D5DB'
+const EXPORT_TEXT = '#111827'
+const EXPORT_TEXT_MUTED = '#4B5563'
+const EXPORT_OCUPADO_BG = '#DBEAFE' // Azul clarito
+const EXPORT_OCUPADO_BORDER = '#3B82F6' // Azul fuerte
+const EXPORT_CAMA_BG = '#FEF3C7' // Amarillo clarito
+const EXPORT_CAMA_BORDER = '#D97706'
 
 const ASIENTOS_ESPECIALES = [1, 2, 3, 4, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56]
 // Distribución de asientos - PLANTA ALTA
@@ -72,6 +84,15 @@ function PlantaExport({
     const esCama = a.tipo === 'cama'
     const esEspecial = a.numero && ASIENTOS_ESPECIALES.includes(a.numero)
 
+    // Estilos adaptados para impresión (fondo blanco)
+    const bgColor = isOcupado 
+      ? (esEspecial ? EXPORT_CAMA_BG : EXPORT_OCUPADO_BG)
+      : EXPORT_BG
+    const borderColor = isOcupado 
+      ? (esEspecial ? EXPORT_CAMA_BORDER : EXPORT_OCUPADO_BORDER)
+      : EXPORT_BORDER
+    const textColor = isOcupado ? EXPORT_TEXT : EXPORT_TEXT_MUTED
+
     return (
       <div
         style={{
@@ -83,11 +104,9 @@ function PlantaExport({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          border: `1.5px solid ${isOcupado ? (esEspecial ? SN_AMARILLO : SN_CELESTE) : (esEspecial ? SN_AMARILLO : '#2a3a4a')}`,
-          background: isOcupado 
-            ? (esEspecial ? 'rgba(242,182,50,0.3)' : 'rgba(45,156,184,0.2)')
-            : (esEspecial ? 'rgba(242,182,50,0.1)' : '#1a2a3a'),
-          color: isOcupado ? (esEspecial ? SN_AZUL : 'white') : (esEspecial ? SN_AMARILLO : TEXTO_MUTED),
+          border: `1.5px solid ${borderColor}`,
+          background: bgColor,
+          color: textColor,
           position: 'relative',
         }}
         title={a.nombrePasajero || `Asiento ${num}`}
@@ -100,8 +119,8 @@ function PlantaExport({
               top: -4,
               right: -4,
               fontSize: 6,
-              background: SN_AMARILLO,
-              color: SN_AZUL,
+              background: EXPORT_CAMA_BORDER, // Naranja oscuro
+              color: 'white',
               borderRadius: 2,
               padding: '0 2px',
             }}
@@ -116,7 +135,7 @@ function PlantaExport({
               bottom: -4,
               right: -4,
               fontSize: 5,
-              background: '#DC2626',
+              background: '#DC2626', // Rojo oscuro
               color: 'white',
               borderRadius: 2,
               padding: '0 2px',
@@ -131,13 +150,14 @@ function PlantaExport({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      {/* Cabecera del microbus */}
       <div
         style={{
           width: '100%',
           height: 24,
           borderRadius: '40px 40px 0 0',
-          background: '#1a2535',
-          border: `1px solid ${BORDE}`,
+          background: '#E5E7EB',
+          border: `1px solid ${EXPORT_BORDER}`,
           borderBottom: 'none',
           display: 'flex',
           alignItems: 'center',
@@ -150,8 +170,8 @@ function PlantaExport({
               width: 20,
               height: 12,
               borderRadius: 3,
-              border: `1px solid ${BORDE}`,
-              background: '#0d1825',
+              border: `1px solid ${EXPORT_BORDER}`,
+              background: '#F9FAFB',
             }}
           />
         ) : (
@@ -160,17 +180,18 @@ function PlantaExport({
               width: 30,
               height: 8,
               borderRadius: 8,
-              background: '#0d1825',
-              border: `1px solid ${BORDE}`,
+              background: '#F9FAFB',
+              border: `1px solid ${EXPORT_BORDER}`,
             }}
           />
         )}
       </div>
 
+      {/* Cuerpo del microbus */}
       <div
         style={{
-          background: BG_PAGINA,
-          border: `1px solid ${BORDE}`,
+          background: EXPORT_BG,
+          border: `1px solid ${EXPORT_BORDER}`,
           borderRadius: '0 0 6px 6px',
           padding: '8px 10px',
           display: 'flex',
@@ -183,7 +204,7 @@ function PlantaExport({
             margin: '0 0 4px',
             fontSize: 8,
             fontWeight: 600,
-            color: TEXTO_MUTED,
+            color: EXPORT_TEXT_MUTED,
             textAlign: 'center',
             textTransform: 'uppercase',
             letterSpacing: 1,
@@ -196,7 +217,7 @@ function PlantaExport({
           if (fila.every(n => n === null)) {
             return (
               <div key={i} style={{ height: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ width: '100%', height: 1, background: BORDE, opacity: 0.4 }} />
+                <div style={{ width: '100%', height: 1, background: EXPORT_BORDER, opacity: 0.6 }} />
               </div>
             )
           }
@@ -217,11 +238,11 @@ function PlantaExport({
               marginTop: 3,
               padding: '2px 6px',
               borderRadius: 4,
-              border: `1px dashed ${BORDE}`,
+              border: `1px dashed ${EXPORT_BORDER}`,
               textAlign: 'center',
             }}
           >
-            <span style={{ fontSize: 7, color: TEXTO_MUTED }}>🚻 WC</span>
+            <span style={{ fontSize: 7, color: EXPORT_TEXT_MUTED }}>🚻 WC</span>
           </div>
         )}
       </div>
@@ -238,7 +259,7 @@ export default function BotonExportarAsientos({ asientos, viajeNombre }: Props) 
     try {
       const canvas = await html2canvas(captureRef.current, {
         scale: 2,
-        backgroundColor: BG_PAGINA,
+        backgroundColor: '#FFFFFF', // Fondo blanco para el PNG
         allowTaint: true,
         useCORS: true,
         logging: false,
@@ -276,14 +297,14 @@ export default function BotonExportarAsientos({ asientos, viajeNombre }: Props) 
         Exportar asientos
       </button>
 
-      {/* Contenido oculto para capturar */}
+      {/* Contenido oculto para capturar (MODO CLARO) */}
       <div
         ref={captureRef}
         style={{
           position: 'fixed',
           left: '-9999px',
           top: 0,
-          background: BG_PAGINA,
+          background: '#FFFFFF',
           padding: '24px 32px',
           width: '800px',
           zIndex: -1,
@@ -292,29 +313,29 @@ export default function BotonExportarAsientos({ asientos, viajeNombre }: Props) 
         {/* Título */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <h2 style={{ color: 'white', fontSize: 18, fontWeight: 700, margin: 0 }}>
+            <h2 style={{ color: EXPORT_TEXT, fontSize: 18, fontWeight: 700, margin: 0 }}>
               🪑 Mapa de asientos
             </h2>
-            <p style={{ color: TEXTO_MUTED, fontSize: 12, margin: '2px 0 0' }}>
+            <p style={{ color: EXPORT_TEXT_MUTED, fontSize: 12, margin: '2px 0 0' }}>
               {viajeNombre} · {totalOcupados}/{totalAsientos} ocupados
             </p>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#1a2a3a', border: '1px solid #2a3a4a' }} />
-              <span style={{ color: TEXTO_MUTED, fontSize: 9 }}>Libre</span>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: EXPORT_BG, border: `1px solid ${EXPORT_BORDER}` }} />
+              <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 9 }}>Libre</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 2, background: SN_CELESTE }} />
-              <span style={{ color: TEXTO_MUTED, fontSize: 9 }}>Ocupado</span>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: EXPORT_OCUPADO_BG, border: `1px solid ${EXPORT_OCUPADO_BORDER}` }} />
+              <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 9 }}>Ocupado</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 2, background: SN_AMARILLO }} />
-              <span style={{ color: TEXTO_MUTED, fontSize: 9 }}>Cama</span>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: EXPORT_CAMA_BG, border: `1px solid ${EXPORT_CAMA_BORDER}` }} />
+              <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 9 }}>Cama</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#F2B632', border: '1px solid #F2B632' }} />
-              <span style={{ color: TEXTO_MUTED, fontSize: 9 }}>+$10k</span>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#FEE2E2', border: '1px solid #DC2626' }} />
+              <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 9 }}>+$10k</span>
             </div>
           </div>
         </div>
@@ -326,8 +347,8 @@ export default function BotonExportarAsientos({ asientos, viajeNombre }: Props) 
         </div>
 
         {/* Leyenda de pasajeros */}
-        <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${BORDE}` }}>
-          <p style={{ color: TEXTO_MUTED, fontSize: 9, marginBottom: 6 }}>👥 Pasajeros asignados:</p>
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${EXPORT_BORDER}` }}>
+          <p style={{ color: EXPORT_TEXT_MUTED, fontSize: 9, marginBottom: 6 }}>👥 Pasajeros asignados:</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {asientos
               .filter(a => a.estado === 'ocupado' || a.estado === 'cama_ocupada')
@@ -336,27 +357,27 @@ export default function BotonExportarAsientos({ asientos, viajeNombre }: Props) 
                 <span
                   key={a.numero}
                   style={{
-                    background: 'rgba(45,156,184,0.15)',
-                    border: `1px solid ${BORDE}`,
+                    background: 'rgba(59,130,246,0.1)',
+                    border: `1px solid ${EXPORT_BORDER}`,
                     borderRadius: 4,
                     padding: '2px 8px',
                     fontSize: 8,
-                    color: 'white',
+                    color: EXPORT_TEXT,
                   }}
                 >
                   #{a.numero} {a.nombrePasajero || 'Desconocido'}
                 </span>
               ))}
             {asientos.filter(a => a.estado === 'ocupado' || a.estado === 'cama_ocupada').length === 0 && (
-              <span style={{ color: TEXTO_MUTED, fontSize: 8 }}>No hay pasajeros asignados</span>
+              <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 8 }}>No hay pasajeros asignados</span>
             )}
           </div>
         </div>
 
         {/* Pie de página */}
-        <div style={{ marginTop: 12, paddingTop: 8, borderTop: `1px solid ${BORDE}`, display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ color: TEXTO_MUTED, fontSize: 7 }}>SN Viajes & Turismo</span>
-          <span style={{ color: TEXTO_MUTED, fontSize: 7 }}>
+        <div style={{ marginTop: 12, paddingTop: 8, borderTop: `1px solid ${EXPORT_BORDER}`, display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 7 }}>SN Viajes & Turismo</span>
+          <span style={{ color: EXPORT_TEXT_MUTED, fontSize: 7 }}>
             Generado: {new Date().toLocaleDateString('es-AR')} {new Date().toLocaleTimeString('es-AR')}
           </span>
         </div>
