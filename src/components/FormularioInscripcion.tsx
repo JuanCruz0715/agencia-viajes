@@ -109,6 +109,9 @@ function claseInput(error?: string, touched?: boolean) {
 }
 
 export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
+  // ✅ FILTRO AQUÍ: Solo mostramos viajes que NO hayan finalizado (fecha_fin >= hoy)
+  const viajesDisponibles = viajes.filter(v => new Date(v.fecha_fin) >= new Date())
+  
   const [viajeId, setViajeId] = useState('')
   const [nombre, setNombre] = useState('')
   const [apellido, setApellido] = useState('')
@@ -141,8 +144,8 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     setTouched(prev => ({ ...prev, [campo]: true }))
   }
 
-  // Obtener viaje seleccionado
-  const viajeSeleccionado = viajes.find((v) => v.id === viajeId)
+  // Obtener viaje seleccionado (ahora buscamos en viajesDisponibles)
+  const viajeSeleccionado = viajesDisponibles.find((v) => v.id === viajeId)
   const PRECIO_SEGURO = viajeSeleccionado?.precio_seguro ?? 20000
   const viajeOfreceSeguro = viajeSeleccionado?.seguro_incluido ?? true
 
@@ -169,7 +172,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   const handleViajeChange = (id: string) => {
     setViajeId(id)
     if (fechaNacimiento) {
-      const viaje = viajes.find((v) => v.id === id)
+      const viaje = viajesDisponibles.find((v) => v.id === id)
       if (viaje) {
         const resultado = calcularPrecioPorEdad(fechaNacimiento, viaje)
         const precioSeguroViaje = viaje.seguro_incluido ? (viaje.precio_seguro || 20000) : 0
@@ -402,7 +405,8 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
               }`}
             >
               <option value="">Seleccioná un viaje</option>
-              {viajes.map((v) => (
+              {/* ✅ USAMOS viajesDisponibles en lugar de viajes */}
+              {viajesDisponibles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.destino} · {v.fecha_inicio} a {v.fecha_fin}
                 </option>

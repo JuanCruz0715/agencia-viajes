@@ -53,6 +53,9 @@ export default function HomePage() {
   const [conteoPorViaje, setConteoPorViaje] = useState<Record<string, { total: number; pendientes: number }>>({})
   const [nombreUsuario, setNombreUsuario] = useState('Usuario')
   const [filtro, setFiltro] = useState<'todos' | 'atencion' | 'proximos' | 'finalizados'>('todos')
+  
+  // 👇 NUEVO ESTADO: Para abrir/cerrar la bandeja de finalizados
+  const [mostrarFinalizados, setMostrarFinalizados] = useState(false)
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -79,8 +82,11 @@ export default function HomePage() {
         const totalPasajeros = pasajerosData?.length || 0
         const pendientes = pasajerosData?.filter(p => p.estado_revision === 'pendiente').length || 0
 
+        // 👇 Filtramos solo los viajes activos o próximos para las métricas principales
+        const viajesActivos = viajesData.filter(v => new Date(v.fecha_fin) >= new Date())
+
         setTotales({
-          viajesActivos: viajesData.length,
+          viajesActivos: viajesActivos.length,
           pasajerosTotales: totalPasajeros,
           pendientesRevision: pendientes
         })
@@ -129,12 +135,15 @@ export default function HomePage() {
 
   const viajesUrgentes = viajes.filter(esUrgente)
 
-  const viajesFiltrados = viajes.filter((v) => {
+  // 👇 FILTROS: Los finalizados ya no se muestran en la lista principal
+  const viajesActivos = viajes.filter(v => new Date(v.fecha_fin) >= new Date())
+  const viajesFinalizados = viajes.filter(v => new Date(v.fecha_fin) < new Date())
+
+  const viajesFiltrados = viajesActivos.filter((v) => {
     const esProximo = new Date(v.fecha_inicio) > new Date()
-    const esFinalizado = new Date(v.fecha_fin) < new Date()
     if (filtro === 'atencion') return esUrgente(v)
     if (filtro === 'proximos') return esProximo
-    if (filtro === 'finalizados') return esFinalizado
+    if (filtro === 'finalizados') return false // Ya no se muestran en el filtro principal
     return true
   })
 
@@ -231,7 +240,7 @@ export default function HomePage() {
           style={{ border: `1px solid ${LINE}`, background: PANEL }}
         >
           {[
-            { label: 'Viajes totales', valor: totales.viajesActivos, color: CHALK },
+            { label: 'Viajes activos', valor: totales.viajesActivos, color: CHALK },
             { label: 'Próximos viajes', valor: viajesProximos.length, color: CHALK },
             { label: 'Necesitan atención', valor: viajesUrgentes.length, color: viajesUrgentes.length > 0 ? CORAL : CHALK, sub: 'baja ocupación' },
           ].map((stat, i) => (
@@ -252,8 +261,8 @@ export default function HomePage() {
         </div>
 
         <div className="flex items-center gap-4 mb-3">
-          <h2 className="font-display text-lg font-semibold text-white">Mis viajes</h2>
-          <span className="font-mono-t text-xs" style={{ color: CHALK_DIM }}>{viajes.length} totales</span>
+          <h2 className="font-display text-lg font-semibold text-white">Mis viajes activos</h2>
+          <span className="font-mono-t text-xs" style={{ color: CHALK_DIM }}>{viajesActivos.length} viajes</span>
         </div>
 
         <div className="flex flex-wrap gap-2 mb-7">
@@ -261,7 +270,6 @@ export default function HomePage() {
             { key: 'todos', label: 'Todos' },
             { key: 'atencion', label: 'Necesitan atención' },
             { key: 'proximos', label: 'Próximos' },
-            { key: 'finalizados', label: 'Finalizados' },
           ].map((f) => (
             <button
               key={f.key}
@@ -278,10 +286,10 @@ export default function HomePage() {
           ))}
         </div>
 
-        {viajes.length === 0 ? (
+        {viajesActivos.length === 0 ? (
           <div className="text-center py-20 rounded-xl" style={{ background: PANEL, border: `1px dashed ${LINE}` }}>
             <p className="text-5xl mb-4">🗺️</p>
-            <p className="font-display font-medium text-white text-lg mb-1">No hay viajes cargados todavía</p>
+            <p className="font-display font-medium text-white text-lg mb-1">No hay viajes activos cargados</p>
             <p className="text-sm mb-6" style={{ color: CHALK_DIM }}>Creá el primero para empezar a gestionar pasajeros</p>
             <Link
               href="/viaje/nuevo"
@@ -368,6 +376,73 @@ export default function HomePage() {
             })}
           </div>
         )}
+
+        {/* 👇 BANDEJA DE VIAJES FINALIZADOS */}
+        {viajesFinalizados.length > 0 && (
+          <div className="mt-12">
+            <button
+              onClick={() => setMostrarFinalizados(!mostrarFinalizados)}
+              className="w-full flex items-center justify-between px-5 py-4 rounded-xl transition-colors"
+              style={{ background: PANEL, border: `1px solid ${LINE}`, color: CHALK }}
+            >
+              <span className="font-display font-semibold text-base">
+                🗂️ Viajes finalizados <span style={{ color: CHALK_DIM }}>({viajesFinalizados.length})</span>
+              </span>
+              <span className={`text-sm transition-transform ${mostrarFinalizados ? 'rotate-180' : ''}`} style={{ color: CHALK_DIM }}>
+                ▼
+              </span>
+            </button>
+
+            {mostrarFinalizados && (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {viajesFinalizados.map((viaje) => {
+                  const conteo = conteoPorViaje[viaje.id] || { total: 0, pendientes: 0 }
+                  const fechaInicio = formatearFecha(viaje.fecha_inicio)
+                  const fechaFin = formatearFecha(viaje.fecha_fin)
+
+                  return (
+                    <Link key={viaje.id} href={`/viaje/${viaje.id}`} className="ticket opacity-80 hover:opacity-100">
+                      <div className="flex-1 p-5 relative">
+                        <span
+                          className="absolute top-5 right-5 font-mono-t text-[11px] font-semibold px-2.5 py-1 rounded-md"
+                          style={{ background: `${CHALK_DIM}18`, color: CHALK_DIM }}
+                        >
+                          Finalizado
+                        </span>
+
+                        <h3 className="font-display font-bold text-base leading-tight text-white pr-20">
+                          {viaje.destino}
+                        </h3>
+                        <p className="font-mono-t text-xs mt-2" style={{ color: CHALK_DIM }}>
+                          {fechaInicio} — {fechaFin}
+                        </p>
+
+                        <div className="route-line">
+                          <div className="route-dot" />
+                          <div className="route-dash" />
+                          <div className="route-dot" />
+                        </div>
+
+                        <div className="flex justify-between items-baseline mb-1.5">
+                          <span className="text-[11px] uppercase tracking-wide" style={{ color: CHALK_DIM }}>Ocupación</span>
+                          <span className="font-mono-t text-xs font-semibold" style={{ color: CHALK_DIM }}>
+                            {conteo.total}/{viaje.cupo_total}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="stub-side">
+                        <span className="font-display font-extrabold text-xl text-white">{conteo.total}</span>
+                        <span className="text-[9px] uppercase tracking-wide text-center" style={{ color: CHALK_DIM }}>Pasajeros</span>
+                      </div>
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        
       </div>
     </main>
   )
