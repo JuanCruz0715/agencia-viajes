@@ -48,6 +48,7 @@ type SupabaseError = {
 const TIPOS_HABITACION: Record<string, number> = {
   Individual: 1,
   Doble: 2,
+  'Doble Matrimonial': 2, // 👈 NUEVO TIPO
   Triple: 3,
   Cuádruple: 4,
 }
@@ -103,7 +104,7 @@ export default function ContenidoHoteles({
     return listaPasajeros.filter((p) => !asignados.has(p.id))
   }
 
-  // ✅ Función SEGURA - Se eliminó el parámetro 'contexto' para evitar errores
+  // ✅ Función SEGURA
   const textoSeguro = (valor: unknown): string => {
     if (typeof valor === 'string' || typeof valor === 'number') return String(valor)
     if (valor === null || valor === undefined) return ''
@@ -250,7 +251,7 @@ export default function ContenidoHoteles({
     // 1. Crear instancia del PDF
     const doc = new jsPDF()
 
-    // 2. Preparar los datos para la tabla (tamaño de fuente un poco más grande para mejor lectura)
+    // 2. Preparar los datos para la tabla
     const bodyRows = listaHabitaciones.map((hab) => {
       const nombresPasajeros = Array.isArray(hab.pasajeros) 
         ? hab.pasajeros.map(id => getNombre(id)).join(', ') 
@@ -264,17 +265,17 @@ export default function ContenidoHoteles({
       ]
     })
 
-    // 3. Generar la tabla automática (comienza en Y=20 para dejar un pequeño margen arriba)
+    // 3. Generar la tabla automática
     autoTable(doc, {
       startY: 20,
       head: [['N° Hab.', 'Tipo', 'Ocupación', 'Pasajeros Asignados']],
       body: bodyRows,
       theme: 'grid',
-      headStyles: { fillColor: [27, 58, 92] }, // Color SN_AZUL
+      headStyles: { fillColor: [27, 58, 92] },
       styles: { fontSize: 10 },
       columnStyles: {
         0: { cellWidth: 25 },
-        1: { cellWidth: 30 },
+        1: { cellWidth: 40 }, // ✅ Ajustado para "Doble Matrimonial"
         2: { cellWidth: 30 },
         3: { cellWidth: 'auto' }
       }
@@ -287,7 +288,7 @@ export default function ContenidoHoteles({
     // ✅ Obtener la coordenada Y final de la tabla
     const finalY = (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 50
 
-    // 5. Escribir el resumen de totales justo debajo de la tabla
+    // 5. Escribir el resumen de totales
     doc.setFontSize(11)
     doc.text(`Total Habitaciones: ${totalHabitaciones}`, 14, finalY + 8)
     doc.text(`Total Pasajeros Alojados: ${totalPasajeros}`, 14, finalY + 16)
@@ -413,7 +414,6 @@ export default function ContenidoHoteles({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: 'white' }}>
-                      {/* ✅ Eliminado el segundo argumento de textoSeguro */}
                       Habitación {textoSeguro(hab.numero)} — {textoSeguro(hab.tipo)}
                     </p>
                     <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXTO_MUTED }}>
@@ -540,7 +540,6 @@ export default function ContenidoHoteles({
           >
             <p style={{ margin: '0 0 4px', fontWeight: 500, fontSize: 15, color: 'white' }}>Asignar pasajero</p>
             <p style={{ margin: '0 0 14px', fontSize: 12, color: TEXTO_MUTED }}>
-              {/* ✅ Eliminado el segundo argumento de textoSeguro */}
               Habitación {textoSeguro(listaHabitaciones.find((h) => h.id === habSeleccionada)?.numero)}
             </p>
 
