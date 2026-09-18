@@ -56,6 +56,16 @@ function calcularEdad(fechaNacimiento: string) {
   return edad
 }
 
+// ✅ FUNCIÓN PARA FORMATEAR FECHA A ARGENTINA (DD/MM/AAAA)
+function formatearFechaArgentina(fecha: string): string {
+  if (!fecha) return ''
+  // La fecha viene como "2026-10-03" o "2026-10-03T00:00:00"
+  const soloFecha = fecha.split('T')[0]
+  const partes = soloFecha.split('-')
+  if (partes.length !== 3) return fecha
+  return `${partes[2]}/${partes[1]}/${partes[0]}`
+}
+
 // ✅ FUNCIÓN PARA CALCULAR PRECIO SEGÚN EDAD
 function calcularPrecioPorEdad(fechaNacimiento: string, viaje: Viaje): { precio: number; descripcion: string } {
   const edad = calcularEdad(fechaNacimiento)
@@ -168,9 +178,10 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     actualizarPrecio(fecha)
   }
 
-  // Manejar cambio de viaje
+  // Manejar cambio de viaje (ahora recibe el ID directamente)
   const handleViajeChange = (id: string) => {
     setViajeId(id)
+    touch('viaje')
     if (fechaNacimiento) {
       const viaje = viajesDisponibles.find((v) => v.id === id)
       if (viaje) {
@@ -390,28 +401,65 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
 
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
 
-          {/* VIAJE */}
+          {/* ============================================ */}
+          {/* ✅ VIAJE - TARJETAS SELECCIONABLES */}
+          {/* ============================================ */}
           <div>
             <label className="text-sm font-semibold text-gray-700 block mb-1.5">📍 Viaje *</label>
-            <select
-              required
-              value={viajeId}
-              onChange={(e) => { handleViajeChange(e.target.value); touch('viaje') }}
-              onBlur={() => touch('viaje')}
-              className={`w-full border-2 rounded-xl p-3 text-gray-800 focus:ring-2 transition-all outline-none ${
-                !touched.viaje ? 'border-gray-200 bg-white' :
-                errores.viaje ? 'border-red-400 bg-red-50 focus:ring-red-200' :
-                'border-green-400 bg-green-50 focus:ring-green-200'
-              }`}
-            >
-              <option value="">Seleccioná un viaje</option>
-              {/* ✅ USAMOS viajesDisponibles en lugar de viajes */}
-              {viajesDisponibles.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.destino} · {v.fecha_inicio} a {v.fecha_fin}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-2">
+              {viajesDisponibles.length === 0 ? (
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
+                  <p className="text-sm text-gray-500">No hay viajes disponibles en este momento.</p>
+                </div>
+              ) : (
+                viajesDisponibles.map((v) => {
+                  const seleccionado = viajeId === v.id
+                  return (
+                    <button
+  key={v.id}
+  type="button"
+  onClick={() => handleViajeChange(v.id)}
+  className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+    seleccionado
+      ? 'border-blue-500 bg-blue-50 shadow-md'
+      : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'
+  }`}
+>
+  <div className="flex items-start gap-3">
+    {/* Círculo de selección */}
+    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+      seleccionado ? 'border-blue-500 bg-blue-500' : 'border-gray-300 bg-white'
+    }`}>
+      {seleccionado && (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+    </div>
+
+    {/* Contenido de la tarjeta */}
+    <div className="flex-1">
+      {/* Destino */}
+      <p className={`font-bold text-base tracking-tight ${seleccionado ? 'text-blue-900' : 'text-gray-800'}`}>
+        {v.destino}
+      </p>
+
+      {/* 📅 Fecha destacada con cajita */}
+      <div className="mt-2 inline-flex items-center gap-2 bg-gradient-to-r from-blue-100 to-indigo-100 border border-blue-200 rounded-lg px-3 py-1.5">
+        <span className="text-blue-600 text-base leading-none">📅</span>
+        <span className={`font-mono font-extrabold text-sm tracking-wide ${seleccionado ? 'text-blue-900' : 'text-blue-800'}`}>
+          {formatearFechaArgentina(v.fecha_inicio)}
+          <span className="text-blue-500 font-bold mx-1.5">→</span>
+          {formatearFechaArgentina(v.fecha_fin)}
+        </span>
+      </div>
+    </div>
+  </div>
+</button>
+                  )
+                })
+              )}
+            </div>
             {touched.viaje && errores.viaje && <p className="text-xs text-red-500 mt-1">⚠ {errores.viaje}</p>}
           </div>
 
