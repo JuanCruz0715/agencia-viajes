@@ -59,7 +59,6 @@ function calcularEdad(fechaNacimiento: string) {
 // ✅ FUNCIÓN PARA FORMATEAR FECHA A ARGENTINA (DD/MM/AAAA)
 function formatearFechaArgentina(fecha: string): string {
   if (!fecha) return ''
-  // La fecha viene como "2026-10-03" o "2026-10-03T00:00:00"
   const soloFecha = fecha.split('T')[0]
   const partes = soloFecha.split('-')
   if (partes.length !== 3) return fecha
@@ -119,9 +118,24 @@ function claseInput(error?: string, touched?: boolean) {
 }
 
 export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
-  // ✅ FILTRO AQUÍ: Solo mostramos viajes que NO hayan finalizado (fecha_fin >= hoy)
+  // ✅ FILTRO: Solo mostramos viajes que NO hayan finalizado (fecha_fin >= hoy)
   const viajesDisponibles = viajes.filter(v => new Date(v.fecha_fin) >= new Date())
   
+  // ✅ AGRUPAR VIAJES POR DESTINO
+  const viajesPorDestino = viajesDisponibles.reduce((acc, viaje) => {
+    const destino = viaje.destino
+    if (!acc[destino]) acc[destino] = []
+    acc[destino].push(viaje)
+    return acc
+  }, {} as Record<string, Viaje[]>)
+
+  // Ordenar cada grupo por fecha
+  Object.keys(viajesPorDestino).forEach(destino => {
+    viajesPorDestino[destino].sort((a, b) => 
+      new Date(a.fecha_inicio).getTime() - new Date(b.fecha_inicio).getTime()
+    )
+  })
+
   const [viajeId, setViajeId] = useState('')
   const [nombre, setNombre] = useState('')
   const [apellido, setApellido] = useState('')
@@ -147,6 +161,9 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
   const [precioCalculado, setPrecioCalculado] = useState(0)
   const [rangoDescripcion, setRangoDescripcion] = useState('')
   const [incluirSeguro, setIncluirSeguro] = useState(false)
+  
+  // ✅ NUEVO ESTADO: Cuál destino está abierto en el acordeón
+  const [destinoAbierto, setDestinoAbierto] = useState<string | null>(null)
 
   const [touched, setTouched] = useState<Record<string, boolean>>({})
 
@@ -154,7 +171,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     setTouched(prev => ({ ...prev, [campo]: true }))
   }
 
-  // Obtener viaje seleccionado (ahora buscamos en viajesDisponibles)
+  // Obtener viaje seleccionado
   const viajeSeleccionado = viajesDisponibles.find((v) => v.id === viajeId)
   const PRECIO_SEGURO = viajeSeleccionado?.precio_seguro ?? 20000
   const viajeOfreceSeguro = viajeSeleccionado?.seguro_incluido ?? true
@@ -178,7 +195,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     actualizarPrecio(fecha)
   }
 
-  // Manejar cambio de viaje (ahora recibe el ID directamente)
+  // Manejar cambio de viaje
   const handleViajeChange = (id: string) => {
     setViajeId(id)
     touch('viaje')
@@ -233,7 +250,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     const copia = [...acompanantes]
     copia[index] = { ...copia[index], [campo]: valor }
     
-    // Si se actualiza la fecha de nacimiento, recalcular precio
     if (campo === 'fechaNacimiento' && valor && viajeSeleccionado) {
       const resultado = calcularPrecioPorEdad(valor as string, viajeSeleccionado)
       const precioSeguroViaje = viajeSeleccionado.seguro_incluido ? (viajeSeleccionado.precio_seguro || 20000) : 0
@@ -276,7 +292,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     const supabase = createClient()
     const grupoId = acompanantes.length > 0 ? crypto.randomUUID() : null
 
-    // Calcular precio del titular
     let precioTitular = viajeSeleccionado?.precio || 0
     let descripcionTitular = 'Adulto'
     if (fechaNacimiento && viajeSeleccionado) {
@@ -285,7 +300,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
       descripcionTitular = resultado.descripcion
     }
 
-    // Sumar seguro si corresponde
     const precioSeguroViaje = viajeSeleccionado?.seguro_incluido ? (viajeSeleccionado?.precio_seguro || 20000) : 0
     const precioFinalTitular = precioTitular + (incluirSeguro && viajeOfreceSeguro ? precioSeguroViaje : 0)
 
@@ -319,7 +333,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
     const filas = [
       titularRow,
       ...acompanantes.map((a) => {
-        // Calcular precio del acompañante
         let precioAcomp = viajeSeleccionado?.precio || 0
         if (a.fechaNacimiento && viajeSeleccionado) {
           const resultado = calcularPrecioPorEdad(a.fechaNacimiento, viajeSeleccionado)
@@ -402,7 +415,7 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
 
           {/* ============================================ */}
-          {/* ✅ VIAJE - TARJETAS SELECCIONABLES */}
+          {/* ✅ VIAJE - ACORDEÓN POR DESTINO */}
           {/* ============================================ */}
           <div>
             <label className="text-sm font-semibold text-gray-700 block mb-1.5">📍 Viaje *</label>
@@ -412,50 +425,102 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                   <p className="text-sm text-gray-500">No hay viajes disponibles en este momento.</p>
                 </div>
               ) : (
-                viajesDisponibles.map((v) => {
-                  const seleccionado = viajeId === v.id
+                Object.entries(viajesPorDestino).map(([destino, viajesDelDestino]) => {
+                  const abierto = destinoAbierto === destino
+                  const viajeSeleccionadoEnEsteDestino = viajesDelDestino.find(v => v.id === viajeId)
+                  const destinoTieneSeleccion = !!viajeSeleccionadoEnEsteDestino
+
                   return (
-                    <button
-  key={v.id}
-  type="button"
-  onClick={() => handleViajeChange(v.id)}
-  className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-    seleccionado
-      ? 'border-blue-500 bg-blue-50 shadow-md'
-      : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'
-  }`}
->
-  <div className="flex items-start gap-3">
-    {/* Círculo de selección */}
-    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-      seleccionado ? 'border-blue-500 bg-blue-500' : 'border-gray-300 bg-white'
-    }`}>
-      {seleccionado && (
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-        </svg>
-      )}
-    </div>
+                    <div
+                      key={destino}
+                      className={`rounded-xl border-2 transition-all ${
+                        destinoTieneSeleccion
+                          ? 'border-blue-500 bg-blue-50 shadow-md'
+                          : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      {/* Cabecera del acordeón */}
+                      <button
+                        type="button"
+                        onClick={() => setDestinoAbierto(abierto ? null : destino)}
+                        className="w-full text-left p-4 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3 flex-1">
+                          <span className="text-2xl">🏔️</span>
+                          <div className="flex-1">
+                            <p className={`font-bold text-base tracking-tight ${
+                              destinoTieneSeleccion ? 'text-blue-900' : 'text-gray-800'
+                            }`}>
+                              {destino}
+                            </p>
+                            <p className={`text-xs mt-0.5 ${
+                              destinoTieneSeleccion ? 'text-blue-700' : 'text-gray-500'
+                            }`}>
+                              {viajesDelDestino.length} {viajesDelDestino.length === 1 ? 'salida disponible' : 'salidas disponibles'}
+                              {destinoTieneSeleccion && (
+                                <span className="ml-2 font-semibold">
+                                  · Seleccionado: {formatearFechaArgentina(viajeSeleccionadoEnEsteDestino!.fecha_inicio)}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`text-xl transition-transform ${
+                          abierto ? 'rotate-180' : ''
+                        } ${destinoTieneSeleccion ? 'text-blue-600' : 'text-gray-400'}`}>
+                          ▼
+                        </span>
+                      </button>
 
-    {/* Contenido de la tarjeta */}
-    <div className="flex-1">
-      {/* Destino */}
-      <p className={`font-bold text-base tracking-tight ${seleccionado ? 'text-blue-900' : 'text-gray-800'}`}>
-        {v.destino}
-      </p>
+                      {/* Contenido desplegable */}
+                      {abierto && (
+                        <div className="px-4 pb-4 pt-1 space-y-2">
+                          {viajesDelDestino.map((v) => {
+                            const seleccionado = viajeId === v.id
+                            return (
+                              <button
+                                key={v.id}
+                                type="button"
+                                onClick={() => {
+                                  handleViajeChange(v.id)
+                                  setDestinoAbierto(null)
+                                }}
+                                className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                  seleccionado
+                                    ? 'border-blue-500 bg-blue-100'
+                                    : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                                    seleccionado ? 'border-blue-500 bg-blue-500' : 'border-gray-300 bg-white'
+                                  }`}>
+                                    {seleccionado && (
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
 
-      {/* 📅 Fecha destacada con cajita */}
-      <div className="mt-2 inline-flex items-center gap-2 bg-gradient-to-r from-blue-100 to-indigo-100 border border-blue-200 rounded-lg px-3 py-1.5">
-        <span className="text-blue-600 text-base leading-none">📅</span>
-        <span className={`font-mono font-extrabold text-sm tracking-wide ${seleccionado ? 'text-blue-900' : 'text-blue-800'}`}>
-          {formatearFechaArgentina(v.fecha_inicio)}
-          <span className="text-blue-500 font-bold mx-1.5">→</span>
-          {formatearFechaArgentina(v.fecha_fin)}
-        </span>
-      </div>
-    </div>
-  </div>
-</button>
+                                  <div className="flex-1">
+                                    <div className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-100 to-indigo-100 border border-blue-200 rounded-lg px-3 py-1">
+                                      <span className="text-blue-600 text-sm leading-none">📅</span>
+                                      <span className={`font-mono font-extrabold text-xs tracking-wide ${
+                                        seleccionado ? 'text-blue-900' : 'text-blue-800'
+                                      }`}>
+                                        {formatearFechaArgentina(v.fecha_inicio)}
+                                        <span className="text-blue-500 font-bold mx-1.5">→</span>
+                                        {formatearFechaArgentina(v.fecha_fin)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )
                 })
               )}
@@ -491,7 +556,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
               </div>
             </div>
 
-            {/* DOCUMENTO */}
             <div className="grid grid-cols-3 gap-3 mb-1">
               <select
                 value={tipoDocumento}
@@ -559,7 +623,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
             />
             {touched.fechaNacimiento && errores.fechaNacimiento && <p className="text-xs text-red-500 mt-1">⚠ {errores.fechaNacimiento}</p>}
             
-            {/* ✅ MOSTRAR EDAD Y PRECIO CALCULADO */}
             {fechaNacimiento && edadTitular !== null && !errores.fechaNacimiento && (
               <div className="mt-2 p-2 bg-blue-50 rounded-xl border border-blue-100">
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -816,7 +879,6 @@ export default function FormularioInscripcion({ viajes }: { viajes: Viaje[] }) {
                       </div>
                     )}
 
-                    {/* SEGURO PARA ACOMPAÑANTE */}
                     <div className="mt-2">
                       <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
                         <input

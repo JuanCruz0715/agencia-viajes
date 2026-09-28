@@ -11,15 +11,15 @@ const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['600', '700',
 const mono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-mono' })
 
 // ---- Tokens ------------------------------------------------------------
-const INK = '#12131C'          // fondo principal (reemplaza BG_PAGINA)
-const PANEL = '#1B1D2B'        // tarjetas (reemplaza BG_CARD)
-const LINE = '#2C2E42'         // bordes / perforado (reemplaza BORDE)
-const CHALK = '#F5F1E8'        // texto principal sobre fondo oscuro
-const CHALK_DIM = '#9CA0B8'    // texto secundario (reemplaza TEXTO_MUTED)
-const CORAL = '#E8734A'        // acento urgencia / CTA (reemplaza SN_AMARILLO en CTAs)
-const GOLD = '#D9A441'         // acento secundario / pendientes
-const ROUTE = '#5FB8AD'        // acento de ruta / completado
-const SN_AZUL = '#1B3A5C'      // se mantiene para la marca en la nav
+const INK = '#12131C'
+const PANEL = '#1B1D2B'
+const LINE = '#2C2E42'
+const CHALK = '#F5F1E8'
+const CHALK_DIM = '#9CA0B8'
+const CORAL = '#E8734A'
+const GOLD = '#D9A441'
+const ROUTE = '#5FB8AD'
+const SN_AZUL = '#1B3A5C'
 
 type Viaje = {
   id: string
@@ -30,6 +30,11 @@ type Viaje = {
   created_at: string
   precio?: number | null
 }
+
+const MESES_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
 
 const formatearFecha = (fecha: string) => {
   if (!fecha) return '--/--/----'
@@ -45,6 +50,19 @@ const calcularDiasRestantes = (fechaInicio: string) => {
   return Math.ceil(diff / (1000 * 60 * 60 * 24))
 }
 
+// ✅ Obtener clave de mes: "2026-10"
+const obtenerClaveMes = (fecha: string) => {
+  const soloFecha = fecha.split('T')[0]
+  const partes = soloFecha.split('-')
+  return `${partes[0]}-${partes[1]}`
+}
+
+// ✅ Formatear mes: "Octubre 2026"
+const formatearMes = (clave: string) => {
+  const [anio, mes] = clave.split('-')
+  return `${MESES_ES[parseInt(mes) - 1]} ${anio}`
+}
+
 export default function HomePage() {
   const router = useRouter()
   const [viajes, setViajes] = useState<Viaje[]>([])
@@ -53,9 +71,10 @@ export default function HomePage() {
   const [conteoPorViaje, setConteoPorViaje] = useState<Record<string, { total: number; pendientes: number }>>({})
   const [nombreUsuario, setNombreUsuario] = useState('Usuario')
   const [filtro, setFiltro] = useState<'todos' | 'atencion' | 'proximos' | 'finalizados'>('todos')
-  
-  // 👇 NUEVO ESTADO: Para abrir/cerrar la bandeja de finalizados
   const [mostrarFinalizados, setMostrarFinalizados] = useState(false)
+  
+  // ✅ Estado para los acordeones de mes (por defecto: null → se calcula al cargar)
+  const [mesAbierto, setMesAbierto] = useState<string | null>(null)
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -82,11 +101,10 @@ export default function HomePage() {
         const totalPasajeros = pasajerosData?.length || 0
         const pendientes = pasajerosData?.filter(p => p.estado_revision === 'pendiente').length || 0
 
-        // 👇 Filtramos solo los viajes activos o próximos para las métricas principales
-        const viajesActivos = viajesData.filter(v => new Date(v.fecha_fin) >= new Date())
+        const viajesActivosData = viajesData.filter(v => new Date(v.fecha_fin) >= new Date())
 
         setTotales({
-          viajesActivos: viajesActivos.length,
+          viajesActivos: viajesActivosData.length,
           pasajerosTotales: totalPasajeros,
           pendientesRevision: pendientes
         })
@@ -100,6 +118,15 @@ export default function HomePage() {
           }
         })
         setConteoPorViaje(conteo)
+
+        // ✅ Calcular el primer mes con viajes activos para abrirlo por defecto
+        const viajesActivosOrdenados = viajesActivosData.sort((a, b) => 
+          new Date(a.fecha_inicio).getTime() - new Date(b.fecha_inicio).getTime()
+        )
+        if (viajesActivosOrdenados.length > 0) {
+          const primerMes = obtenerClaveMes(viajesActivosOrdenados[0].fecha_inicio)
+          setMesAbierto(primerMes)
+        }
       }
       setCargando(false)
     }
@@ -125,7 +152,6 @@ export default function HomePage() {
 
   const viajesProximos = viajes.filter(v => new Date(v.fecha_inicio) >= new Date())
 
-  // Un viaje "necesita atención" si sale pronto y todavía tiene poca ocupación
   const esUrgente = (viaje: Viaje) => {
     const conteo = conteoPorViaje[viaje.id] || { total: 0, pendientes: 0 }
     const dias = calcularDiasRestantes(viaje.fecha_inicio)
@@ -135,7 +161,6 @@ export default function HomePage() {
 
   const viajesUrgentes = viajes.filter(esUrgente)
 
-  // 👇 FILTROS: Los finalizados ya no se muestran en la lista principal
   const viajesActivos = viajes.filter(v => new Date(v.fecha_fin) >= new Date())
   const viajesFinalizados = viajes.filter(v => new Date(v.fecha_fin) < new Date())
 
@@ -143,8 +168,21 @@ export default function HomePage() {
     const esProximo = new Date(v.fecha_inicio) > new Date()
     if (filtro === 'atencion') return esUrgente(v)
     if (filtro === 'proximos') return esProximo
-    if (filtro === 'finalizados') return false // Ya no se muestran en el filtro principal
+    if (filtro === 'finalizados') return false
     return true
+  })
+
+  // ✅ Agrupar los viajes filtrados por mes
+  const viajesPorMes = viajesFiltrados.reduce((acc, viaje) => {
+    const clave = obtenerClaveMes(viaje.fecha_inicio)
+    if (!acc[clave]) acc[clave] = []
+    acc[clave].push(viaje)
+    return acc
+  }, {} as Record<string, Viaje[]>)
+
+  // ✅ Ordenar los meses: del más cercano al más lejano
+  const mesesOrdenados = Object.keys(viajesPorMes).sort((a, b) => {
+    return a.localeCompare(b) // "2026-10" < "2026-11" < "2026-12"
   })
 
   return (
@@ -234,7 +272,7 @@ export default function HomePage() {
           </p>
         </div>
 
-        {/* Franja de métricas estilo "tablero de salidas" */}
+        {/* Franja de métricas */}
         <div
           className="grid grid-cols-1 sm:grid-cols-3 mb-10 rounded-2xl overflow-hidden"
           style={{ border: `1px solid ${LINE}`, background: PANEL }}
@@ -304,80 +342,134 @@ export default function HomePage() {
             <p className="text-sm" style={{ color: CHALK_DIM }}>Ningún viaje coincide con este filtro.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {viajesFiltrados.map((viaje) => {
-              const conteo = conteoPorViaje[viaje.id] || { total: 0, pendientes: 0 }
-              const porcentaje = viaje.cupo_total > 0 ? Math.min(100, Math.round((conteo.total / viaje.cupo_total) * 100)) : 0
-
-              const fechaInicio = formatearFecha(viaje.fecha_inicio)
-              const fechaFin = formatearFecha(viaje.fecha_fin)
-              const diasRestantes = calcularDiasRestantes(viaje.fecha_inicio)
-
-              const esProximo = new Date(viaje.fecha_inicio) > new Date()
-              const esActivo = new Date(viaje.fecha_inicio) <= new Date() && new Date(viaje.fecha_fin) >= new Date()
-              const urgente = esUrgente(viaje)
-
-              const badgeColor = esActivo ? GOLD : urgente ? CORAL : esProximo ? ROUTE : CHALK_DIM
-              const badgeBg = esActivo ? `${GOLD}22` : urgente ? `${CORAL}22` : esProximo ? `${ROUTE}22` : `${CHALK_DIM}18`
-              const badgeTexto = esActivo ? 'En curso' : esProximo ? `sale en ${diasRestantes}d` : 'Finalizado'
+          <div className="space-y-6">
+            {mesesOrdenados.map((claveMes) => {
+              const viajesDelMes = viajesPorMes[claveMes]
+              const abierto = mesAbierto === claveMes
+              
+              // Totales del mes
+              const totalPasajerosMes = viajesDelMes.reduce((sum, v) => {
+                const c = conteoPorViaje[v.id] || { total: 0, pendientes: 0 }
+                return sum + c.total
+              }, 0)
+              const totalPendientesMes = viajesDelMes.reduce((sum, v) => {
+                const c = conteoPorViaje[v.id] || { total: 0, pendientes: 0 }
+                return sum + c.pendientes
+              }, 0)
 
               return (
-                <Link key={viaje.id} href={`/viaje/${viaje.id}`} className={`ticket ${urgente ? 'urgente' : ''}`}>
-                  <div className="flex-1 p-5 relative">
-                    <span
-                      className="absolute top-5 right-5 font-mono-t text-[11px] font-semibold px-2.5 py-1 rounded-md"
-                      style={{ background: badgeBg, color: badgeColor }}
-                    >
-                      {badgeTexto}
+                <div key={claveMes}>
+                  {/* Cabecera del mes */}
+                  <button
+                    onClick={() => setMesAbierto(abierto ? null : claveMes)}
+                    className="w-full flex items-center justify-between px-5 py-4 rounded-xl transition-colors mb-3"
+                    style={{ 
+                      background: PANEL, 
+                      border: `1px solid ${abierto ? ROUTE + '66' : LINE}`,
+                      color: CHALK 
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg">📅</span>
+                      <div className="text-left">
+                        <p className="font-display font-semibold text-base">
+                          {formatearMes(claveMes)}
+                        </p>
+                        <p className="font-mono-t text-[11px] mt-0.5" style={{ color: CHALK_DIM }}>
+                          {viajesDelMes.length} {viajesDelMes.length === 1 ? 'viaje' : 'viajes'}
+                          {totalPasajerosMes > 0 && ` · ${totalPasajerosMes} pasajeros`}
+                          {totalPendientesMes > 0 && (
+                            <span style={{ color: CORAL }}> · {totalPendientesMes} pendientes</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`text-sm transition-transform ${abierto ? 'rotate-180' : ''}`} style={{ color: CHALK_DIM }}>
+                      ▼
                     </span>
+                  </button>
 
-                    <h3 className="font-display font-bold text-base leading-tight text-white pr-20">
-                      {viaje.destino}
-                    </h3>
-                    <p className="font-mono-t text-xs mt-2" style={{ color: CHALK_DIM }}>
-                      {fechaInicio} — {fechaFin}
-                    </p>
+                  {/* Grilla de viajes del mes */}
+                  {abierto && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {viajesDelMes.map((viaje) => {
+                        const conteo = conteoPorViaje[viaje.id] || { total: 0, pendientes: 0 }
+                        const porcentaje = viaje.cupo_total > 0 ? Math.min(100, Math.round((conteo.total / viaje.cupo_total) * 100)) : 0
 
-                    <div className="route-line">
-                      <div className="route-dot" />
-                      <div className="route-dash" />
-                      <div className="route-dot" />
+                        const fechaInicio = formatearFecha(viaje.fecha_inicio)
+                        const fechaFin = formatearFecha(viaje.fecha_fin)
+                        const diasRestantes = calcularDiasRestantes(viaje.fecha_inicio)
+
+                        const esProximo = new Date(viaje.fecha_inicio) > new Date()
+                        const esActivo = new Date(viaje.fecha_inicio) <= new Date() && new Date(viaje.fecha_fin) >= new Date()
+                        const urgente = esUrgente(viaje)
+
+                        const badgeColor = esActivo ? GOLD : urgente ? CORAL : esProximo ? ROUTE : CHALK_DIM
+                        const badgeBg = esActivo ? `${GOLD}22` : urgente ? `${CORAL}22` : esProximo ? `${ROUTE}22` : `${CHALK_DIM}18`
+                        const badgeTexto = esActivo ? 'En curso' : esProximo ? `sale en ${diasRestantes}d` : 'Finalizado'
+
+                        return (
+                          <Link key={viaje.id} href={`/viaje/${viaje.id}`} className={`ticket ${urgente ? 'urgente' : ''}`}>
+                            <div className="flex-1 p-5 relative">
+                              <span
+                                className="absolute top-5 right-5 font-mono-t text-[11px] font-semibold px-2.5 py-1 rounded-md"
+                                style={{ background: badgeBg, color: badgeColor }}
+                              >
+                                {badgeTexto}
+                              </span>
+
+                              <h3 className="font-display font-bold text-base leading-tight text-white pr-20">
+                                {viaje.destino}
+                              </h3>
+                              <p className="font-mono-t text-xs mt-2" style={{ color: CHALK_DIM }}>
+                                {fechaInicio} — {fechaFin}
+                              </p>
+
+                              <div className="route-line">
+                                <div className="route-dot" />
+                                <div className="route-dash" />
+                                <div className="route-dot" />
+                              </div>
+
+                              <div className="flex justify-between items-baseline mb-1.5">
+                                <span className="text-[11px] uppercase tracking-wide" style={{ color: CHALK_DIM }}>Ocupación</span>
+                                <span className="font-mono-t text-xs font-semibold" style={{ color: porcentaje >= 90 ? GOLD : ROUTE }}>
+                                  {conteo.total}/{viaje.cupo_total}
+                                </span>
+                              </div>
+                              <div className="h-[5px] rounded-full overflow-hidden" style={{ background: '#0B1620' }}>
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{ width: `${porcentaje}%`, background: porcentaje >= 90 ? GOLD : ROUTE }}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="stub-side">
+                              <span className="font-display font-extrabold text-xl text-white">{conteo.total}</span>
+                              <span className="text-[9px] uppercase tracking-wide text-center" style={{ color: CHALK_DIM }}>Pasajeros</span>
+                              {conteo.pendientes > 0 ? (
+                                <span className="font-mono-t text-[9px] font-semibold px-1.5 py-0.5 rounded text-center" style={{ background: `${CORAL}26`, color: CORAL }}>
+                                  {conteo.pendientes} pend.
+                                </span>
+                              ) : (
+                                <span className="font-mono-t text-[9px] font-semibold px-1.5 py-0.5 rounded text-center" style={{ background: `${ROUTE}22`, color: ROUTE }}>
+                                  Completo
+                                </span>
+                              )}
+                            </div>
+                          </Link>
+                        )
+                      })}
                     </div>
-
-                    <div className="flex justify-between items-baseline mb-1.5">
-                      <span className="text-[11px] uppercase tracking-wide" style={{ color: CHALK_DIM }}>Ocupación</span>
-                      <span className="font-mono-t text-xs font-semibold" style={{ color: porcentaje >= 90 ? GOLD : ROUTE }}>
-                        {conteo.total}/{viaje.cupo_total}
-                      </span>
-                    </div>
-                    <div className="h-[5px] rounded-full overflow-hidden" style={{ background: '#0B1620' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${porcentaje}%`, background: porcentaje >= 90 ? GOLD : ROUTE }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="stub-side">
-                    <span className="font-display font-extrabold text-xl text-white">{conteo.total}</span>
-                    <span className="text-[9px] uppercase tracking-wide text-center" style={{ color: CHALK_DIM }}>Pasajeros</span>
-                    {conteo.pendientes > 0 ? (
-                      <span className="font-mono-t text-[9px] font-semibold px-1.5 py-0.5 rounded text-center" style={{ background: `${CORAL}26`, color: CORAL }}>
-                        {conteo.pendientes} pend.
-                      </span>
-                    ) : (
-                      <span className="font-mono-t text-[9px] font-semibold px-1.5 py-0.5 rounded text-center" style={{ background: `${ROUTE}22`, color: ROUTE }}>
-                        Completo
-                      </span>
-                    )}
-                  </div>
-                </Link>
+                  )}
+                </div>
               )
             })}
           </div>
         )}
 
-        {/* 👇 BANDEJA DE VIAJES FINALIZADOS */}
+        {/* BANDEJA DE VIAJES FINALIZADOS */}
         {viajesFinalizados.length > 0 && (
           <div className="mt-12">
             <button
