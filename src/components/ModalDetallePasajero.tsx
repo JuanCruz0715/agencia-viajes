@@ -74,15 +74,8 @@ type Props = {
   estaAprobando?: boolean
   onMover?: () => void
   onMoverGrupo?: () => void
-  onEditarMontoTotal?: (data: { pasajeroId: string; montoTotal: number; nombre: string }) => void // ✅ NUEVO
+  onEditarMontoTotal?: (data: { pasajeroId: string; montoTotal: number; nombre: string }) => void
 }
-
-// SOLO 3 VENDEDORES
-const VENDEDORES = [
-  { iniciales: 'MT', nombre: 'Maria Jose Tapia' },
-  { iniciales: 'GP', nombre: 'Gabriela Paladini' },
-  { iniciales: 'MM', nombre: 'Mauricio Murua' },
-]
 
 export default function ModalDetallePasajero({
   pasajero,
@@ -97,32 +90,41 @@ export default function ModalDetallePasajero({
   estaAprobando = false,
   onMover,
   onMoverGrupo,
-  onEditarMontoTotal, // ✅ NUEVO
+  onEditarMontoTotal,
 }: Props) {
   const [vendedorSeleccionado, setVendedorSeleccionado] = useState<{ iniciales: string; nombre: string } | null>(null)
   const [mostrarListaVendedores, setMostrarListaVendedores] = useState(false)
+  const [inputExterno, setInputExterno] = useState('')
 
   const titular = miembros.find((m) => m.es_titular) ?? pasajero
   const resto = miembros.filter((m) => m.id !== titular.id)
   const yaAprobado = pasajero.estado_revision === 'aprobado'
 
   const handleAprobar = () => {
-    console.log('🟢 handleAprobar - EJECUTADO')
-    console.log('🟢 pasajero.id:', pasajero.id)
-    console.log('🟢 vendedorSeleccionado:', vendedorSeleccionado)
     const iniciales = vendedorSeleccionado?.iniciales || ''
-    console.log('🟢 iniciales a enviar:', iniciales)
     onAprobar(iniciales)
   }
 
   const seleccionarVendedor = (iniciales: string, nombre: string) => {
-    console.log('🟢 Vendedor seleccionado:', { iniciales, nombre })
     setVendedorSeleccionado({ iniciales, nombre })
     setMostrarListaVendedores(false)
+    setInputExterno('')
+  }
+
+  const confirmarExterno = () => {
+    if (!inputExterno.trim()) {
+      alert('Por favor, escribí el nombre del vendedor externo.')
+      return
+    }
+    setVendedorSeleccionado({
+      iniciales: 'EXT',
+      nombre: `Externo - ${inputExterno.trim()}`
+    })
+    setMostrarListaVendedores(false)
+    setInputExterno('')
   }
 
   const handleCerrar = () => {
-    console.log('🟡 Cerrando modal - resetear aprobando')
     setVendedorSeleccionado(null)
     onCancel()
   }
@@ -136,13 +138,9 @@ export default function ModalDetallePasajero({
 
   // 🔥 Función de aprobación directa - CON CÁLCULO DE SEGURO
   const aprobarDirecto = async () => {
-    console.log('🔥🔥🔥 APROBACIÓN DIRECTA DESDE MODAL 🔥🔥🔥')
-    console.log('pasajero.id:', pasajero.id)
-
     try {
       const supabase = createClient()
 
-      // 1. Obtener los datos del pasajero y su viaje
       const { data: pasajeroData, error: errorPasajero } = await supabase
         .from('pasajeros')
         .select('viaje_id, fecha_nacimiento, seguro_incluido')
@@ -150,12 +148,10 @@ export default function ModalDetallePasajero({
         .single()
 
       if (errorPasajero || !pasajeroData) {
-        console.error('🔴 Error al obtener pasajero:', errorPasajero)
         alert('❌ Error al obtener datos del pasajero')
         return
       }
 
-      // 2. Obtener los datos del viaje
       const { data: viajeData, error: errorViaje } = await supabase
         .from('viajes')
         .select('precio, precio_seguro, rangos_edad')
@@ -163,12 +159,10 @@ export default function ModalDetallePasajero({
         .single()
 
       if (errorViaje || !viajeData) {
-        console.error('🔴 Error al obtener viaje:', errorViaje)
         alert('❌ Error al obtener datos del viaje')
         return
       }
 
-      // 3. Calcular el precio según la edad
       let montoTotal: number = viajeData.precio || 0
       let edad: number | null = null
 
@@ -181,7 +175,6 @@ export default function ModalDetallePasajero({
           edad = edad - 1
         }
 
-        // Buscar en rangos_edad
         if (viajeData.rangos_edad && viajeData.rangos_edad.length > 0) {
           const rango = viajeData.rangos_edad.find(
             (r: RangoEdad) => edad !== null && edad >= r.edad_min && edad <= r.edad_max
@@ -192,38 +185,29 @@ export default function ModalDetallePasajero({
         }
       }
 
-      // 4. ✅ SUMAR EL SEGURO SI CORRESPONDE
       const precioSeguro: number = viajeData.precio_seguro || 20000
       if (pasajeroData.seguro_incluido) {
         montoTotal = montoTotal + precioSeguro
-        console.log('🟢 Seguro incluido: +$' + precioSeguro)
       }
 
-      console.log('🟢 Monto total calculado:', montoTotal)
-
-      // 5. Actualizar el pasajero con estado_revision y monto_total
       const { error } = await supabase
         .from('pasajeros')
         .update({
           estado_revision: 'aprobado',
-          monto_total: montoTotal
+          monto_total: montoTotal,
+          vendedor: vendedorSeleccionado?.nombre || null 
         })
         .eq('id', pasajero.id)
 
       if (error) {
-        console.error('🔴 Error en aprobación directa:', error)
         alert('❌ Error: ' + error.message)
         return
       }
 
-      console.log('🟢 Pasajero aprobado con monto total: $' + montoTotal.toLocaleString())
       alert('✅ Pasajero aprobado correctamente!\nMonto total: $' + montoTotal.toLocaleString())
-
-      // Recargar la página para ver los cambios
       window.location.reload()
 
     } catch (err) {
-      console.error('🔴 Error en catch de aprobación directa:', err)
       alert('❌ Error: ' + (err as Error).message)
     }
   }
@@ -265,7 +249,6 @@ export default function ModalDetallePasajero({
 
           {/* CONTENIDO SCROLLEABLE */}
           <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
-
             {/* Datos del titular */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -323,12 +306,6 @@ export default function ModalDetallePasajero({
                     )}
                   </p>
                 </div>
-                {titular.vendedor && (
-                  <div>
-                    <p className={label} style={{ color: CHALK_DIM }}>Vendedor asignado</p>
-                    <p className="text-white font-medium mt-0.5">{titular.vendedor}</p>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -417,49 +394,65 @@ export default function ModalDetallePasajero({
               </div>
             )}
 
-            {/* VENDEDOR - OPCIONAL */}
+            {/* VENDEDOR - OPCIONAL / ASIGNADO */}
             <div className="rounded-lg p-4" style={{ background: `${ROUTE}0f`, border: `1px solid ${ROUTE}40` }}>
               <p className="text-sm font-semibold mb-2" style={{ color: ROUTE }}>
-                Vendedor <span style={{ color: CHALK_DIM }} className="font-normal">(opcional)</span>
+                Vendedor
               </p>
 
-              {vendedorSeleccionado ? (
-                <div className="flex items-center justify-between rounded-lg p-2" style={{ background: `${ROUTE}18`, border: `1px solid ${ROUTE}55` }}>
-                  <div className="flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center font-mono-t" style={{ background: `${ROUTE}30`, color: ROUTE }}>
-                      {vendedorSeleccionado.iniciales}
-                    </span>
-                    <span className="text-sm text-white font-medium">{vendedorSeleccionado.nombre}</span>
+              {/* ✅ SI YA ESTÁ APROBADO: Mostramos los datos fijos y no dejamos elegir */}
+              {yaAprobado ? (
+                <div className="flex items-center gap-3 rounded-lg p-3" style={{ background: `${ROUTE}18`, border: `1px solid ${ROUTE}55` }}>
+                  <span className="w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center font-mono-t" style={{ background: `${ROUTE}30`, color: ROUTE }}>
+                    ✓
+                  </span>
+                  <div>
+                    <p className="text-sm text-white font-medium">
+                      {titular.vendedor || 'Vendedor Interno'}
+                    </p>
+                    <p className="text-xs" style={{ color: ROUTE }}>Asignado y confirmado</p>
                   </div>
-                  <button
-                    onClick={() => setVendedorSeleccionado(null)}
-                    className="text-xs font-medium transition-colors"
-                    style={{ color: CORAL }}
-                    type="button"
-                  >
-                    Quitar
-                  </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => setMostrarListaVendedores(true)}
-                  className="w-full rounded-lg py-3 text-sm transition-colors font-medium"
-                  style={{ border: `2px dashed ${ROUTE}55`, color: ROUTE }}
-                  type="button"
-                >
-                  + Seleccionar vendedor (opcional)
-                </button>
+                /* ✅ SI NO ESTÁ APROBADO: Mostramos el selector normal */
+                <>
+                  {vendedorSeleccionado ? (
+                    <div className="flex items-center justify-between rounded-lg p-2" style={{ background: `${ROUTE}18`, border: `1px solid ${ROUTE}55` }}>
+                      <div className="flex items-center gap-3">
+                        <span className="w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center font-mono-t" style={{ background: `${ROUTE}30`, color: ROUTE }}>
+                          {vendedorSeleccionado.iniciales}
+                        </span>
+                        <span className="text-sm text-white font-medium">{vendedorSeleccionado.nombre}</span>
+                      </div>
+                      <button
+                        onClick={() => setVendedorSeleccionado(null)}
+                        className="text-xs font-medium transition-colors"
+                        style={{ color: CORAL }}
+                        type="button"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setMostrarListaVendedores(true)}
+                      className="w-full rounded-lg py-3 text-sm transition-colors font-medium"
+                      style={{ border: `2px dashed ${ROUTE}55`, color: ROUTE }}
+                      type="button"
+                    >
+                      + Seleccionar vendedor (opcional)
+                    </button>
+                  )}
+                  <p className="text-xs mt-1.5" style={{ color: CHALK_DIM }}>
+                    {vendedorSeleccionado ? 'Vendedor asignado' : 'No es obligatorio para aprobar'}
+                  </p>
+                </>
               )}
-              <p className="text-xs mt-1.5" style={{ color: CHALK_DIM }}>
-                {vendedorSeleccionado ? 'Vendedor asignado' : 'No es obligatorio para aprobar'}
-              </p>
             </div>
           </div>
 
           {/* BOTONES FIJOS ABAJO */}
           <div className="px-6 py-4 flex flex-col gap-2.5 flex-shrink-0" style={{ borderTop: `1px solid ${LINE}`, background: `${INK}80` }}>
-
-            {/* Fila principal: cerrar + aprobar */}
             <div className="flex gap-2">
               <button
                 onClick={handleCerrar}
@@ -482,7 +475,6 @@ export default function ModalDetallePasajero({
               )}
             </div>
 
-            {/* Fila de acciones neutrales */}
             <div className="flex flex-wrap gap-2">
               {onEditar && (
                 <button onClick={onEditar} className="flex-1 rounded-lg py-2 text-xs font-medium transition-colors" style={actionBtn(GOLD)} type="button">
@@ -522,7 +514,6 @@ export default function ModalDetallePasajero({
               )}
             </div>
 
-            {/* Zona de acciones sensibles */}
             {(onCancelar || onEliminar) && (
               <div className="flex gap-2 pt-2" style={{ borderTop: `1px solid ${LINE}` }}>
                 {onCancelar && (
@@ -546,7 +537,7 @@ export default function ModalDetallePasajero({
         <div className={`${display.variable} ${mono.variable} fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]`}>
           <div className="rounded-xl p-6 max-w-md w-full" style={{ background: PANEL, border: `1px solid ${LINE}` }}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display text-lg font-semibold text-white">Seleccionar vendedor</h3>
+              <h3 className="font-display text-lg font-semibold text-white">Tipo de Vendedor</h3>
               <button
                 onClick={() => setMostrarListaVendedores(false)}
                 className="transition-colors"
@@ -557,24 +548,61 @@ export default function ModalDetallePasajero({
               </button>
             </div>
 
-            <div className="space-y-2">
-              {VENDEDORES.map((v) => (
-                <button
-                  key={v.iniciales}
-                  onClick={() => seleccionarVendedor(v.iniciales, v.nombre)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left"
-                  style={{ border: `1px solid ${LINE}`, background: INK }}
-                  type="button"
-                >
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${ROUTE}22` }}>
-                    <span className="text-sm font-bold font-mono-t" style={{ color: ROUTE }}>{v.iniciales}</span>
+            <div className="space-y-3">
+              
+              {/* ✅ OPCIÓN INTERNO */}
+              <button
+                onClick={() => seleccionarVendedor('INT', 'Vendedor Interno')}
+                className="w-full flex items-center gap-4 px-4 py-4 rounded-lg transition-colors text-left"
+                style={{ border: `1px solid ${LINE}`, background: INK }}
+                type="button"
+              >
+                <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${ROUTE}22` }}>
+                  <span className="text-base font-bold font-mono-t" style={{ color: ROUTE }}>INT</span>
+                </div>
+                <div>
+                  <p className="text-base font-medium text-white">Vendedor Interno</p>
+                  <p className="text-xs mt-0.5" style={{ color: CHALK_DIM }}>Personal de la agencia</p>
+                </div>
+              </button>
+
+              {/* ✅ OPCIÓN EXTERNO CON INPUT */}
+              <div 
+                className="rounded-lg p-4 transition-colors"
+                style={{ border: `1px solid ${LINE}`, background: INK }}
+              >
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${GOLD}22` }}>
+                    <span className="text-base font-bold font-mono-t" style={{ color: GOLD }}>EXT</span>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-white">{v.nombre}</p>
-                    <p className="text-xs font-mono-t" style={{ color: CHALK_DIM }}>Iniciales: {v.iniciales}</p>
+                    <p className="text-base font-medium text-white">Vendedor Externo</p>
+                    <p className="text-xs mt-0.5" style={{ color: CHALK_DIM }}>Agencias o revendedores</p>
                   </div>
-                </button>
-              ))}
+                </div>
+                
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Escribí el nombre..."
+                    value={inputExterno}
+                    onChange={(e) => setInputExterno(e.target.value)}
+                    className="flex-1 rounded-lg px-3 py-2 text-sm text-white outline-none transition-all"
+                    style={{ background: PANEL, border: `1px solid ${LINE}` }}
+                    onFocus={(e) => (e.currentTarget.style.borderColor = GOLD)}
+                    onBlur={(e) => (e.currentTarget.style.borderColor = LINE)}
+                  />
+                  <button
+                    onClick={confirmarExterno}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
+                    style={{ background: GOLD, color: INK }}
+                    type="button"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </div>
+
             </div>
 
             <div className="mt-4 pt-4 flex justify-end" style={{ borderTop: `1px solid ${LINE}` }}>

@@ -118,7 +118,8 @@ export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props
         'Género': p.genero_pasajero || '',
         'Nacionalidad': p.nacionalidad || '',
         'Parentesco': p.es_titular ? 'TITULAR' : (p.parentesco_con_titular || 'Acompañante'),
-        'Iniciales': p.iniciales_vendedor || '',
+        // ✅ ACÁ ESTÁ EL CAMBIO CLAVE
+        'Vendedor': p.vendedor || '',
         'Contacto Emergencia': p.contacto_emergencia_nombre || '',
         'Tel. Emergencia': p.contacto_emergencia_telefono || '',
         'Parentesco Emergencia': p.contacto_emergencia_parentesco || '',
@@ -151,8 +152,7 @@ export default function BotonExportarPasajeros({ pasajeros, viajeNombre }: Props
         { wch: 12 }, // Género
         { wch: 15 }, // Nacionalidad
         { wch: 15 }, // Parentesco
-        { wch: 20 }, // Vendedor
-        { wch: 12 }, // Iniciales
+        { wch: 25 }, // Vendedor (Le dimos un poco más de ancho)
         { wch: 25 }, // Contacto Emergencia
         { wch: 15 }, // Tel. Emergencia
         { wch: 15 }, // Parentesco Emergencia
